@@ -7,7 +7,7 @@ import { Recorder, toGeminiAudio } from './audio.js';
 import { PRESET_AISLES } from './presets.js';
 import { esc, norm, roomCode, parseRoom, formatRoom, capitalize, plural } from './util.js';
 import { icon, hydrateIcons } from './icons.js';
-import { APP_VERSION } from './version.js';
+import { APP_VERSION, APP_RELEASED } from './version.js';
 import { avatarHtml, photoToAvatar, AVATAR_EMOJIS } from './avatar.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -600,6 +600,8 @@ function renderAvatarEditor() {
 function openSettings(focusSel) {
   $('#set-name').value = settings.name;
   draftAvatar = settings.avatar;
+  draftTheme = { accent: settings.accent, darkMode: settings.darkMode };
+  renderAppearance();
   renderAvatarEditor();
   $('#set-apikey').value = settings.apiKey;
   $('#set-model').value = settings.model || DEFAULT_MODEL;
@@ -614,6 +616,7 @@ function openSettings(focusSel) {
     info.textContent = `🔑 ${shared.sharedBy || 'Un participant'} partage sa clé Gemini avec cette liste : tu peux dicter sans configurer de clé. Si tu saisis la tienne, elle sera utilisée en priorité.`;
   }
   renderRooms();
+  renderReceivedKeys();
   $('#dlg-settings').showModal();
   if (focusSel) $(focusSel)?.focus();
 }
@@ -633,6 +636,52 @@ function renderRooms() {
   }).join('');
 }
 
+// ---------- Apparence (aperçu immédiat, enregistré avec le formulaire, annulé sinon) ----------
+const { THEMES } = window.GrosseryTheme;
+let draftTheme = {};
+const systemDark = () => matchMedia('(prefers-color-scheme: dark)').matches;
+
+function renderAppearance() {
+  const current = window.GrosseryTheme.byId(draftTheme.accent);
+  $('#set-dark').checked = draftTheme.darkMode ?? systemDark();
+  $('#set-accent-name').textContent = `· ${current.name}`;
+  $('#set-accent').innerHTML = THEMES.map((t) => `<button type="button" role="radio" data-accent="${t.id}"
+    aria-label="${esc(t.name)}" title="${esc(t.name)}" aria-checked="${t.id === current.id}"
+    class="${t.id === current.id ? 'selected' : ''}" style="--h:${t.h};--c:${t.c};--l:${t.l}"></button>`).join('');
+}
+
+function previewTheme(patch) {
+  Object.assign(draftTheme, patch);
+  window.GrosseryTheme.apply(draftTheme);
+  renderAppearance();
+}
+
+// ---------- Clés reçues ----------
+const fmtDateTime = (t) => new Date(t).toLocaleString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+function renderReceivedKeys() {
+  const rows = [];
+  for (const code of settings.rooms) {
+    const current = code === settings.room;
+    const key = current ? store.sharedAi() : peekList(code).key;
+    if (!key || key.by === settings.userId) continue;
+    const title = current ? store.listTitle() : peekList(code).title;
+    const who = current ? person(key.by, key.sharedBy) : { id: key.by, name: key.sharedBy || '?', avatar: null };
+    rows.push({ current, title: listLabel(title, code), who, key });
+  }
+  rows.sort((a, b) => b.current - a.current || b.key.sharedAt - a.key.sharedAt);
+  $('#set-keys').innerHTML = rows.length
+    ? rows.map(({ current, title, who, key }) => `<li>
+        ${avatarHtml(who, 'sm')}
+        <span class="key-main">
+          <span><b>${esc(key.sharedBy || who.name)}</b> · ${esc(title)}${current ? ' <span class="tag">actuelle</span>' : ''}</span>
+          <span class="muted small">depuis le ${esc(fmtDateTime(key.sharedAt))}${settings.apiKey ? '' : current ? ' · utilisée ici' : ''}</span>
+        </span>
+        <span class="key-suffix" title="Fin de la clé, pour la reconnaître">…${esc(key.apiKey.slice(-4))}</span>
+      </li>`).join('')
+    : '<li class="muted">Aucune clé reçue.</li>';
+}
+
 function saveSettingsForm(e) {
   e.preventDefault();
   const name = $('#set-name').value.trim();
@@ -644,6 +693,8 @@ function saveSettingsForm(e) {
   settings.avatar = draftAvatar;
   settings.notifyAddVoice = $('#set-notify-voice').checked;
   settings.notifyAddManual = $('#set-notify-manual').checked;
+  settings.accent = draftTheme.accent;
+  if (typeof draftTheme.darkMode === 'boolean') settings.darkMode = draftTheme.darkMode;
   saveSettings(settings);
   publishProfile();
 
@@ -755,6 +806,14 @@ function cancelDictation() {
 
 function bindEvents() {
   $('#app-version').textContent = `Version ${APP_VERSION}`;
+  $('#app-released').textContent = `Publiée le ${new Date(`${APP_RELEASED}T12:00:00`).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}`;
+  $('#set-accent').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-accent]');
+    if (b) previewTheme({ accent: b.dataset.accent });
+  });
+  $('#set-dark').addEventListener('change', (e) => previewTheme({ darkMode: e.target.checked }));
+  // Fermeture sans enregistrer : on revient au thème enregistré.
+  $('#dlg-settings').addEventListener('close', () => window.GrosseryTheme.apply(settings));
   for (const dlg of document.querySelectorAll('dialog')) if (dlg.id !== 'dlg-onboard' && dlg.id !== 'dlg-rec') setupDialog(dlg);
 
   // Navigation

@@ -5,6 +5,19 @@ Toutes les évolutions notables de ce projet sont documentées ici.
 Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/)
 et le projet respecte le [versionnage sémantique](https://semver.org/lang/fr/).
 
+## [0.11.0] - 2026-11-14
+
+### Added
+- Thème : 23 couleurs au choix (verts, bleus, turquoises, violets, roses, rouges et oranges, jaunes et bruns, neutres), avec aperçu immédiat dans « Profil & paramètres ». Les fonds et les gris prennent une légère nuance de la couleur choisie.
+- Interrupteur « Mode sombre ». Tant qu'il n'a pas été touché, l'app suit le réglage du système.
+- « Clés reçues » dans les paramètres : pour chaque liste, qui partage sa clé, depuis quand, et la fin de la clé (4 derniers caractères) pour la reconnaître.
+- Date de publication de la version sous le numéro de version, en bas du profil.
+
+### Changed
+- La clé partagée garde sa date de début de partage (`sharedAt`) tant que c'est la même clé.
+- La pastille « En ligne » reste verte quelle que soit la couleur du thème.
+- La barre du navigateur mobile (`theme-color`) prend la couleur du thème.
+
 ## [0.10.0] - 2026-11-14
 
 ### Added

@@ -51,8 +51,10 @@ Ouvrir `http://localhost:8000/?signal=http://localhost:9000` : le choix est mém
 7. **Cocher** : toucher un produit le passe dans « Dans le panier » (repliable en bas, toucher pour le remettre dans la liste).
 8. **Partager** : icône de partage ou pastille d'état. Lien, QR code ou code à 8 caractères. Le panneau liste les personnes connectées.
 9. **Avatar** : bouton en haut à droite (*Profil & paramètres*). Photo, emoji ou initiales. Il apparaît chez les autres sur les produits que tu ajoutes ou coches et dans les notifications.
-10. **Clé Gemini** : *Paramètres*, clé gratuite sur <https://aistudio.google.com/apikey>. Elle est stockée dans le `localStorage` de l'appareil. Sans clé, tout fonctionne sauf la dictée et « Auto (IA) ».
+10. **Apparence** : dans *Profil & paramètres*, une couleur parmi 23 et l'interrupteur « Mode sombre » (par défaut, celui du système). Réglage propre à l'appareil.
+11. **Clé Gemini** : *Paramètres*, clé gratuite sur <https://aistudio.google.com/apikey>. Elle est stockée dans le `localStorage` de l'appareil. Sans clé, tout fonctionne sauf la dictée et « Auto (IA) ».
    - **Une seule clé pour tous** : cocher « Partager ma clé dans toutes mes listes ». Le réglage vaut pour l'appareil : la clé est publiée dans chaque liste que tu ouvres ou crées, et les autres participants peuvent y dicter sans rien configurer. Ils ne la gardent pas pour leurs autres listes : elle n'est disponible que dans les listes où tu es présent. Une clé personnelle saisie sur un appareil reste prioritaire.
+   - **Clés reçues** : la liste des clés partagées par d'autres dans tes listes, avec qui, depuis quand et les 4 derniers caractères de la clé.
    - Décocher retire le partage : la clé est effacée tout de suite chez les participants de la liste ouverte, et dans tes autres listes dès que tu les ouvres.
    - « Retirer cette liste de l'appareil » retire aussi ta clé de cette liste pour tous, à condition d'être connecté. Hors connexion, un avertissement le signale.
    - Quelqu'un a pu copier la clé entre-temps : pour une révocation certaine, il faut la régénérer dans AI Studio.
@@ -69,6 +71,8 @@ js/sync.js            WebRTC (PeerJS), élection d'hôte, relais, heartbeat
 js/gemini.js          Appel REST Gemini, sortie JSON structurée
 js/audio.js           Enregistrement micro, conversion WAV 16 kHz mono
 js/avatar.js          Avatars : rendu, recadrage photo
+js/theme.js           Couleurs du thème et mode sombre (appliqués avant le premier affichage)
+js/version.js         Numéro et date de publication de la version
 js/presets.js         Rayons types
 js/icons.js           Icônes SVG inline
 sw.js, manifest       PWA : installable, utilisable hors-ligne

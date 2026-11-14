@@ -41,8 +41,9 @@ export function peekList(room) {
       count: (data?.items || []).filter((i) => !i.deleted && !i.checked).length,
       title: typeof meta?.title === 'string' ? meta.title : '',
       keyBy: typeof key?.by === 'string' ? key.by : '', // userId de qui partage sa clé dans cette liste
+      key: key ? cleanMeta(key) : null,
     };
-  } catch { return { count: 0, title: '', keyBy: '' }; }
+  } catch { return { count: 0, title: '', keyBy: '', key: null }; }
 }
 
 // ---------- Validation des enregistrements (données venant potentiellement d'un pair) ----------
@@ -104,7 +105,11 @@ function cleanMeta(r) {
   if (!base) return null;
   if (base.id === 'list') return { ...base, title: str(r.title, 80) };
   if (base.id !== 'gemini') return base; // réglage d'une version plus récente : conservé et relayé tel quel
-  return { ...base, apiKey: base.deleted ? '' : str(r.apiKey, 200), model: str(r.model, 80), sharedBy: str(r.sharedBy, 60) };
+  const sharedAt = Number(r.sharedAt);
+  return {
+    ...base, apiKey: base.deleted ? '' : str(r.apiKey, 200), model: str(r.model, 80), sharedBy: str(r.sharedBy, 60),
+    sharedAt: Number.isFinite(sharedAt) && sharedAt > 0 ? sharedAt : base.updatedAt, // début du partage
+  };
 }
 
 // Profils des participants (id = userId) : prénom + avatar, pour l'affichage même hors connexion.
@@ -356,7 +361,10 @@ export class Store extends EventTarget {
   }
 
   setSharedAi({ apiKey, model, sharedBy }) {
-    this._commit({ meta: [{ id: 'gemini', apiKey, model, sharedBy, deleted: false }] });
+    // Date de début du partage conservée tant que c'est la même clé (changement de modèle, de prénom…).
+    const cur = this.sharedAi();
+    const same = cur && cur.by === this.getUser().userId && cur.apiKey === apiKey;
+    this._commit({ meta: [{ id: 'gemini', apiKey, model, sharedBy, sharedAt: same ? cur.sharedAt : Date.now(), deleted: false }] });
   }
 
   /** Retire la clé partagée (pierre tombale sans la clé, propagée à tous). */

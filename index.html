@@ -9,6 +9,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="css/style.css">
+  <script src="js/theme.js"></script>
   <!-- PeerJS (WebRTC + signalisation publique gratuite) et générateur de QR code -->
   <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js" defer></script>
@@ -179,6 +180,16 @@
         </label>
       </fieldset>
       <fieldset>
+        <legend>Apparence</legend>
+        <label class="switch-row">Mode sombre
+          <input id="set-dark" class="switch" type="checkbox" role="switch">
+        </label>
+        <div class="field">
+          <span>Couleur <span id="set-accent-name" class="swatch-name"></span></span>
+          <div id="set-accent" class="swatches" role="radiogroup" aria-label="Couleur principale"></div>
+        </div>
+      </fieldset>
+      <fieldset>
         <legend>IA vocale Gemini</legend>
         <label class="field">Clé API
           <input id="set-apikey" type="password" autocomplete="off" spellcheck="false" placeholder="AIza…">
@@ -200,6 +211,11 @@
           </span>
         </label>
         <p id="set-shared-info" class="info" hidden></p>
+        <div class="field">
+          <span>Clés reçues</span>
+          <ul id="set-keys" class="keys"></ul>
+          <small>Clés partagées par d'autres participants, dans tes listes. Ta propre clé, si tu en saisis une, reste prioritaire.</small>
+        </div>
       </fieldset>
       <fieldset>
         <legend>Mes listes</legend>
@@ -214,6 +230,7 @@
         <button class="btn primary" type="submit">Enregistrer</button>
       </div>
       <p class="app-version" id="app-version"></p>
+      <p class="app-version" id="app-released"></p>
     </form>
   </dialog>
 
