@@ -20,7 +20,7 @@ export const DEFAULT_MODEL = 'gemini-flash-lite-latest';
 export function loadSettings() {
   let saved = {};
   try { saved = JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {}; } catch { /* stockage indisponible */ }
-  return { name: '', userId: uid(), avatar: null, apiKey: '', model: DEFAULT_MODEL, room: null, rooms: [], ...saved };
+  return { name: '', userId: uid(), avatar: null, notifyAddVoice: false, notifyAddManual: false, apiKey: '', model: DEFAULT_MODEL, room: null, rooms: [], ...saved };
 }
 
 export function saveSettings(settings) {
@@ -69,6 +69,8 @@ function cleanItem(r) {
     checkedAt: checked ? Number(r.checkedAt) || base.updatedAt : null,
     addedBy: str(r.addedBy, 60),
     addedById: str(r.addedById, 64),
+    // Jeton d'annonce : change à chaque ajout que l'auteur a choisi de notifier ('voice:…' ou 'manual:…').
+    announce: str(r.announce, 40) || null,
     checkedById: checked ? str(r.checkedById, 64) : null,
     createdAt: Number(r.createdAt) || base.updatedAt,
   };
@@ -253,8 +255,9 @@ export class Store extends EventTarget {
         this._observe(r.updatedAt);
         this[coll].set(r.id, r);
         changes[coll].push(r);
-        if (!silent && coll === 'items' && !r.deleted && cur && !cur.checked && r.checked) {
-          events.push({ type: 'checked', item: r });
+        if (!silent && coll === 'items' && !r.deleted) {
+          if (cur && !cur.checked && r.checked) events.push({ type: 'checked', item: r });
+          else if (!r.checked && r.announce && r.announce !== cur?.announce) events.push({ type: 'added', item: r });
         }
       }
     }
@@ -362,8 +365,9 @@ export class Store extends EventTarget {
    * - déjà dans la liste active → ignoré
    * - déjà dans le panier → remis dans la liste
    * @param {{name: string, aisleId: string|null}[]} entries
+   * @param {{announce?: 'voice'|'manual'|null}} opts announce = notifier les autres participants
    */
-  addItems(entries) {
+  addItems(entries, { announce = null } = {}) {
     const { name: me, userId } = this.getUser();
     const known = new Map();
     for (const it of this.itemList()) {
@@ -372,6 +376,7 @@ export class Store extends EventTarget {
     }
     const out = [];
     const result = { added: [], restored: [], skipped: [] };
+    const token = announce ? `${announce}:${uid()}` : null;
     for (const e of entries) {
       const name = String(e.name || '').trim();
       if (!name) continue;
@@ -380,12 +385,15 @@ export class Store extends EventTarget {
       if (cur && !cur.checked) { result.skipped.push(cur); continue; }
       let rec;
       if (cur) {
-        rec = { ...cur, checked: false, checkedBy: null, checkedById: null, checkedAt: null, aisleId: e.aisleId ?? cur.aisleId };
+        rec = {
+          ...cur, checked: false, checkedBy: null, checkedById: null, checkedAt: null, aisleId: e.aisleId ?? cur.aisleId,
+          announce: token || cur.announce,
+        };
         result.restored.push(rec);
       } else {
         rec = {
           id: uid(), name, aisleId: e.aisleId || null, checked: false, checkedBy: null, checkedAt: null,
-          addedBy: me, addedById: userId, createdAt: Date.now(), deleted: false,
+          addedBy: me, addedById: userId, createdAt: Date.now(), deleted: false, announce: token,
         };
         result.added.push(rec);
       }

@@ -5,6 +5,12 @@ Toutes les évolutions notables de ce projet sont documentées ici.
 Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/)
 et le projet respecte le [versionnage sémantique](https://semver.org/lang/fr/).
 
+## [0.7.0] - 2026-11-14
+
+### Added
+- Option « Prévenir les autres quand j'ajoute des produits » dans les paramètres, avec une case pour la dictée vocale (« Bob a dicté : Bananes, Lait ») et une pour l'ajout manuel, y compris « Auto (IA) » et un produit remis depuis le panier par un nouvel ajout (« Bob a ajouté : Pain »). Désactivée par défaut.
+- Ces notifications sont regroupées comme celles des coches (une ligne par personne et par action, mise à jour en place, transparentes aux clics). Remettre un produit depuis le panier en le décochant ne notifie pas.
+
 ## [0.6.0] - 2026-11-14
 
 ### Changed

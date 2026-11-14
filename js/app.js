@@ -76,28 +76,50 @@ function onStoreChange(e) {
   scheduleRender();
 }
 
-// Coches des autres regroupées dans une seule notification, mise à jour en place.
-let takenGroup = null; // { handle, byPerson: Map<clé, { who, names: string[] }> }
+// Notifications des autres regroupées (une par type : coches, ajouts), mises à jour en place :
+// une ligne par personne et par action, ex. « Bob a pris : Lait, Pain, Œufs +2 ».
+const groupToasts = {}; // slot -> { handle, lines: Map<clé, { who, verb, names }> }
 
-function notifyRemote(events) {
-  const checked = events.filter((e) => e.type === 'checked');
-  if (!checked.length) return;
-  if (!takenGroup?.handle.alive) takenGroup = { handle: null, byPerson: new Map() };
-  for (const { item } of checked) {
-    const key = item.checkedById || item.checkedBy || '?';
-    const group = takenGroup.byPerson.get(key) || { who: person(item.checkedById, item.checkedBy), names: [] };
-    group.names.push(item.name);
-    takenGroup.byPerson.set(key, group);
+function pushGroupToast(slot, entries) {
+  let g = groupToasts[slot];
+  if (!g?.handle?.alive) g = groupToasts[slot] = { handle: null, lines: new Map() };
+  for (const { key, who, verb, name } of entries) {
+    const line = g.lines.get(key) || { who, verb, names: [] };
+    line.names.push(name);
+    g.lines.set(key, line);
   }
-  const html = [...takenGroup.byPerson.values()].map(({ who, names }) => {
+  const html = [...g.lines.values()].map(({ who, verb, names }) => {
     const list = names.length > 4
       ? `${names.slice(0, 3).map(esc).join(', ')} +${names.length - 3}`
       : names.map(esc).join(', ');
-    return `<span class="taken-line">${avatarHtml(who, 'sm')}<span><b>${esc(who.name)}</b> a pris : ${list}</span></span>`;
+    return `<span class="group-line">${avatarHtml(who, 'sm')}<span><b>${esc(who.name)}</b> ${verb} : ${list}</span></span>`;
   }).join('');
-  if (takenGroup.handle?.alive) takenGroup.handle.update(html);
-  else takenGroup.handle = toast(html, { kind: 'taken', slot: 'taken', duration: 4000 });
-  navigator.vibrate?.(60);
+  if (g.handle?.alive) g.handle.update(html);
+  else g.handle = toast(html, { kind: 'group', slot, duration: 4000 });
+}
+
+function notifyRemote(events) {
+  const checked = events.filter((e) => e.type === 'checked').map(({ item }) => ({
+    key: item.checkedById || item.checkedBy || '?',
+    who: person(item.checkedById, item.checkedBy),
+    verb: 'a pris',
+    name: item.name,
+  }));
+  if (checked.length) {
+    pushGroupToast('taken', checked);
+    navigator.vibrate?.(60);
+  }
+  // Ajouts annoncés par leur auteur (option « Prévenir les autres » de ses paramètres).
+  const added = events.filter((e) => e.type === 'added').map(({ item }) => {
+    const voice = item.announce.startsWith('voice');
+    return {
+      key: `${item.by}|${voice}`,
+      who: person(item.by, item.addedBy), // item.by = dernier auteur (aussi pour un produit remis dans la liste)
+      verb: voice ? 'a dicté' : 'a ajouté',
+      name: item.name,
+    };
+  });
+  if (added.length) pushGroupToast('added', added);
 }
 
 // =====================================================================
@@ -324,8 +346,15 @@ function checkItem(id) {
   }, 180);
 }
 
-/** Ajoute le résultat de Gemini et affiche un résumé (avec annulation). */
-function applyExtracted(list) {
+/** Option « Prévenir les autres » de l'utilisateur pour ce type d'ajout. */
+const announceFor = (source) =>
+  (source === 'voice' ? settings.notifyAddVoice : settings.notifyAddManual) ? source : null;
+
+/**
+ * Ajoute le résultat de Gemini et affiche un résumé (avec annulation).
+ * @param {'voice'|'manual'} source dictée, ou texte saisi classé par « Auto (IA) »
+ */
+function applyExtracted(list, source) {
   const valid = new Set(store.aisleList().map((a) => a.id));
   const entries = list.map((x) => ({
     name: capitalize(x.name),
@@ -335,7 +364,7 @@ function applyExtracted(list) {
     toast("Je n'ai reconnu aucun produit.", { kind: 'error' });
     return;
   }
-  const r = store.addItems(entries);
+  const r = store.addItems(entries, { announce: announceFor(source) });
   const parts = [];
   if (r.added.length) parts.push(`${plural(r.added.length, 'ajouté', 'ajoutés')} : ${r.added.map((i) => esc(i.name)).join(', ')}`);
   if (r.restored.length) parts.push(`${plural(r.restored.length, 'remis', 'remis')} dans la liste`);
@@ -364,10 +393,10 @@ async function quickAdd(e) {
     try {
       const items = await extractItems({ apiKey: cfg?.apiKey, model: cfg?.model, aisles: store.aisleList(), text });
       input.value = '';
-      applyExtracted(items);
+      applyExtracted(items, 'manual');
     } catch (err) {
       // Repli : on ajoute quand même, sans classement.
-      const r = store.addItems(splitNames(text).map((name) => ({ name, aisleId: null })));
+      const r = store.addItems(splitNames(text).map((name) => ({ name, aisleId: null })), { announce: announceFor('manual') });
       input.value = '';
       toast(`${esc(aiErrorMessage(err, cfg))} Ajouté dans « Non classé » (${r.added.length}).`, { kind: 'error', duration: 6000 });
     } finally {
@@ -375,7 +404,7 @@ async function quickAdd(e) {
       btn.classList.remove('busy');
     }
   } else {
-    const r = store.addItems(splitNames(text).map((name) => ({ name, aisleId: select.value || null })));
+    const r = store.addItems(splitNames(text).map((name) => ({ name, aisleId: select.value || null })), { announce: announceFor('manual') });
     input.value = '';
     if (r.skipped.length && !r.added.length && !r.restored.length) toast(`${esc(r.skipped[0].name)} est déjà dans la liste.`);
   }
@@ -492,6 +521,8 @@ function openSettings(focusSel) {
   renderAvatarEditor();
   $('#set-apikey').value = settings.apiKey;
   $('#set-model').value = settings.model || DEFAULT_MODEL;
+  $('#set-notify-voice').checked = !!settings.notifyAddVoice;
+  $('#set-notify-manual').checked = !!settings.notifyAddManual;
   const shared = store.sharedAi();
   const sharedByMe = !!shared && shared.by === settings.userId;
   $('#set-share-key').checked = sharedByMe;
@@ -524,6 +555,8 @@ function saveSettingsForm(e) {
   settings.apiKey = $('#set-apikey').value.trim();
   settings.model = $('#set-model').value.trim() || DEFAULT_MODEL;
   settings.avatar = draftAvatar;
+  settings.notifyAddVoice = $('#set-notify-voice').checked;
+  settings.notifyAddManual = $('#set-notify-manual').checked;
   saveSettings(settings);
   publishProfile();
 
@@ -622,7 +655,7 @@ async function processAudio() {
     const items = await extractItems({ apiKey: cfg?.apiKey, model: cfg?.model, aisles: store.aisleList(), audio: lastAudio });
     if (!$('#dlg-rec').open) return; // annulé entre-temps
     $('#dlg-rec').close();
-    applyExtracted(items);
+    applyExtracted(items, 'voice');
   } catch (err) {
     if ($('#dlg-rec').open) setRecState('error', aiErrorMessage(err, cfg));
   }

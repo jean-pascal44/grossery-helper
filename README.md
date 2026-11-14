@@ -37,10 +37,11 @@ Ouvrir `http://localhost:8000/?signal=http://localhost:9000` : le choix est mém
 2. **Rayons** : bouton « Rayons types » pour démarrer avec 12 rayons, puis ajuster nom, description et ordre (flèches) selon ton magasin.
 3. **Ajout manuel** : champ en haut de la liste. Plusieurs produits d'un coup en les séparant par des virgules. Le choix **✨ Auto (IA)** fait classer le texte par Gemini.
 4. **Dictée** : bouton micro, dicter « des bananes, du lait, 3 avocats et du liquide vaisselle », puis *Terminé*. Les produits déjà présents ne sont pas dupliqués, ceux du panier sont remis dans la liste. Un bouton *Annuler* permet de retirer l'ajout.
-5. **Cocher** : toucher un produit le passe dans « Dans le panier » (repliable en bas, toucher pour le remettre dans la liste).
-6. **Partager** : icône de partage ou pastille d'état. Lien, QR code ou code à 8 caractères. Le panneau liste les personnes connectées.
-7. **Avatar** : bouton en haut à droite (*Profil & paramètres*). Photo, emoji ou initiales. Il apparaît chez les autres sur les produits que tu ajoutes ou coches et dans les notifications.
-8. **Clé Gemini** : *Paramètres*, clé gratuite sur <https://aistudio.google.com/apikey>. Elle est stockée dans le `localStorage` de l'appareil. Sans clé, tout fonctionne sauf la dictée et « Auto (IA) ».
+5. **Prévenir les autres de ses ajouts** (optionnel) : dans les paramètres, une case pour la dictée et une pour l'ajout manuel. Les autres reçoivent alors « Bob a dicté : … » ou « Bob a ajouté : … ».
+6. **Cocher** : toucher un produit le passe dans « Dans le panier » (repliable en bas, toucher pour le remettre dans la liste).
+7. **Partager** : icône de partage ou pastille d'état. Lien, QR code ou code à 8 caractères. Le panneau liste les personnes connectées.
+8. **Avatar** : bouton en haut à droite (*Profil & paramètres*). Photo, emoji ou initiales. Il apparaît chez les autres sur les produits que tu ajoutes ou coches et dans les notifications.
+9. **Clé Gemini** : *Paramètres*, clé gratuite sur <https://aistudio.google.com/apikey>. Elle est stockée dans le `localStorage` de l'appareil. Sans clé, tout fonctionne sauf la dictée et « Auto (IA) ».
    - **Une seule clé pour tous** : cocher « Partager ma clé avec les participants de cette liste ». La clé est synchronisée avec la liste, et les autres participants peuvent dicter sans rien configurer. Une clé personnelle saisie sur un appareil reste prioritaire.
    - Décocher retire le partage : la clé est effacée chez les autres. Quelqu'un a pu la copier entre-temps, donc pour une révocation certaine, il faut régénérer la clé dans AI Studio.
    - **Recommandé** : dans Google Cloud Console (*API et services → Identifiants*), restreindre la clé aux référents HTTP de ton site (`https://<utilisateur>.github.io/*`), pour qu'elle soit inutilisable ailleurs.

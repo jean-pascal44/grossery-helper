@@ -256,8 +256,8 @@ main { max-width: 640px; margin: 0 auto; padding: 0 16px; }
 }
 .toast.error { background: var(--danger); color: #fff; }
 .toast-msg { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.toast.taken .toast-msg { display: flex; flex-direction: column; gap: 8px; }
-.taken-line { display: flex; align-items: center; gap: 10px; }
+.toast.group .toast-msg { display: flex; flex-direction: column; gap: 8px; }
+.group-line { display: flex; align-items: center; gap: 10px; }
 .toast button { pointer-events: auto; flex: none; border: 0; background: transparent; color: inherit; font: inherit; font-weight: 700; text-decoration: underline; cursor: pointer; padding: 4px; }
 .toast.out { opacity: 0; transform: translateY(-6px); transition: 0.2s; }
 @keyframes toast-in { from { opacity: 0; transform: translateY(-8px); } }

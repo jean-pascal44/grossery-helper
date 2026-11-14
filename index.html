@@ -149,6 +149,17 @@
       </div>
       <label class="field">Ton prénom <input id="set-name" type="text" maxlength="40" required></label>
       <fieldset>
+        <legend>Prévenir les autres quand j'ajoute des produits</legend>
+        <label class="check-row">
+          <input id="set-notify-voice" type="checkbox">
+          <span>Par la dictée vocale<small>Ex. « Bob a dicté : Bananes, Lait, 3 avocats ».</small></span>
+        </label>
+        <label class="check-row">
+          <input id="set-notify-manual" type="checkbox">
+          <span>À la main<small>Saisie dans le champ d'ajout, y compris avec « Auto (IA) », ou produit remis depuis le panier par un nouvel ajout.</small></span>
+        </label>
+      </fieldset>
+      <fieldset>
         <legend>IA vocale Gemini</legend>
         <label class="field">Clé API
           <input id="set-apikey" type="password" autocomplete="off" spellcheck="false" placeholder="AIza…">
