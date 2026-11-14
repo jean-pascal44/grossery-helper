@@ -1,0 +1,307 @@
+// État de la liste + persistance locale + fusion CRDT simple (Last-Write-Wins par enregistrement).
+//
+// Chaque rayon / produit est un enregistrement indépendant portant `updatedAt` et `by`.
+// Une suppression est une "pierre tombale" (`deleted: true`) pour qu'elle se propage aux pairs.
+// La fusion garde, pour chaque id, la version la plus récente : elle est commutative et
+// idempotente, donc on peut ré-échanger des états complets sans risque (reconnexion, hors-ligne…).
+// `updatedAt` est une horloge hybride (max(Date.now(), dernière valeur vue + 1)) pour limiter
+// les effets d'un téléphone dont l'heure est décalée.
+
+import { uid, norm } from './util.js';
+
+const SETTINGS_KEY = 'grossery:settings';
+const LIST_PREFIX = 'grossery:list:';
+const TOMBSTONE_TTL = 30 * 24 * 3600 * 1000; // purge des suppressions après 30 jours
+const MAX_FUTURE = 7 * 24 * 3600 * 1000; // rejette les dates absurdes venant d'un pair
+export const DEFAULT_MODEL = 'gemini-flash-lite-latest';
+
+// ---------- Paramètres (propres à l'appareil, jamais synchronisés) ----------
+
+export function loadSettings() {
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {}; } catch { /* stockage indisponible */ }
+  return { name: '', userId: uid(), apiKey: '', model: DEFAULT_MODEL, room: null, rooms: [], ...saved };
+}
+
+export function saveSettings(settings) {
+  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* quota / navigation privée */ }
+}
+
+export function forgetList(room) {
+  try { localStorage.removeItem(LIST_PREFIX + room); } catch { /* ignore */ }
+}
+
+/** Nombre de produits restants d'une liste stockée (pour l'écran "Mes listes"). */
+export function peekList(room) {
+  try {
+    const data = JSON.parse(localStorage.getItem(LIST_PREFIX + room));
+    return (data?.items || []).filter((i) => !i.deleted && !i.checked).length;
+  } catch { return 0; }
+}
+
+// ---------- Validation des enregistrements (données venant potentiellement d'un pair) ----------
+
+const str = (v, max) => (typeof v === 'string' ? v : v == null ? '' : String(v)).slice(0, max);
+
+function baseFields(r) {
+  if (!r || typeof r !== 'object' || typeof r.id !== 'string' || !r.id || r.id.length > 64) return null;
+  const updatedAt = Number(r.updatedAt);
+  if (!Number.isFinite(updatedAt) || updatedAt <= 0 || updatedAt > Date.now() + MAX_FUTURE) return null;
+  return { id: r.id, deleted: !!r.deleted, updatedAt, by: str(r.by, 64) };
+}
+
+function cleanAisle(r) {
+  const base = baseFields(r);
+  if (!base) return null;
+  return { ...base, name: str(r.name, 80), description: str(r.description, 500), order: Number.isFinite(+r.order) ? +r.order : 0 };
+}
+
+function cleanItem(r) {
+  const base = baseFields(r);
+  if (!base) return null;
+  const checked = !!r.checked;
+  return {
+    ...base,
+    name: str(r.name, 200),
+    aisleId: typeof r.aisleId === 'string' && r.aisleId ? r.aisleId.slice(0, 64) : null,
+    checked,
+    checkedBy: checked ? str(r.checkedBy, 60) : null,
+    checkedAt: checked ? Number(r.checkedAt) || base.updatedAt : null,
+    addedBy: str(r.addedBy, 60),
+    createdAt: Number(r.createdAt) || base.updatedAt,
+  };
+}
+
+const CLEAN = { aisles: cleanAisle, items: cleanItem };
+const COLLECTIONS = ['aisles', 'items'];
+
+/** `a` l'emporte-t-il sur `b` ? Égalité départagée par l'id d'auteur pour un ordre total. */
+const wins = (a, b) => a.updatedAt > b.updatedAt || (a.updatedAt === b.updatedAt && a.by > b.by);
+
+// ---------- Store ----------
+
+export class Store extends EventTarget {
+  /**
+   * @param {string} room code de la liste
+   * @param {() => {userId: string, name: string}} getUser
+   */
+  constructor(room, getUser) {
+    super();
+    this.room = room;
+    this.getUser = getUser;
+    this.aisles = new Map();
+    this.items = new Map();
+    this.clock = 0;
+    this._saveTimer = null;
+    this._load();
+    this._onPageHide = () => this.flush();
+    window.addEventListener('pagehide', this._onPageHide);
+  }
+
+  /** Libère la liste (changement de liste). `discard` = ne pas réécrire l'état (liste supprimée). */
+  dispose({ discard = false } = {}) {
+    if (!discard) this.flush();
+    clearTimeout(this._saveTimer);
+    window.removeEventListener('pagehide', this._onPageHide);
+    this.disposed = true;
+  }
+
+  _load() {
+    let data = null;
+    try { data = JSON.parse(localStorage.getItem(LIST_PREFIX + this.room)); } catch { /* ignore */ }
+    if (!data) return;
+    const cutoff = Date.now() - TOMBSTONE_TTL;
+    for (const coll of COLLECTIONS) {
+      for (const raw of data[coll] || []) {
+        const r = CLEAN[coll](raw);
+        if (!r || (r.deleted && r.updatedAt < cutoff)) continue;
+        this[coll].set(r.id, r);
+        this._observe(r.updatedAt);
+      }
+    }
+  }
+
+  _save() {
+    clearTimeout(this._saveTimer);
+    this._saveTimer = setTimeout(() => this.flush(), 150);
+  }
+
+  flush() {
+    clearTimeout(this._saveTimer);
+    if (this.disposed) return;
+    try { localStorage.setItem(LIST_PREFIX + this.room, JSON.stringify(this.snapshot())); } catch { /* ignore */ }
+  }
+
+  _observe(t) { if (t > this.clock) this.clock = t; }
+  _tick() { this.clock = Math.max(Date.now(), this.clock + 1); return this.clock; }
+
+  /** État complet, pierres tombales comprises (pour la synchro). */
+  snapshot() {
+    return { aisles: [...this.aisles.values()], items: [...this.items.values()] };
+  }
+
+  _emit(source, changes, events = []) {
+    this.dispatchEvent(new CustomEvent('change', { detail: { source, changes, events } }));
+  }
+
+  /** Applique des modifications locales (horodatage + diffusion). */
+  _commit(changes) {
+    const { userId } = this.getUser();
+    const out = { aisles: [], items: [] };
+    for (const coll of COLLECTIONS) {
+      for (const rec of changes[coll] || []) {
+        const r = { ...rec, updatedAt: this._tick(), by: userId };
+        this[coll].set(r.id, r);
+        out[coll].push(r);
+      }
+    }
+    if (out.aisles.length || out.items.length) {
+      this._save();
+      this._emit('local', out);
+    }
+    return out;
+  }
+
+  /**
+   * Fusionne un état (complet ou partiel) reçu d'un pair.
+   * @param {{aisles?: object[], items?: object[]}} snap
+   * @param {{silent?: boolean}} opts silent = pas de notifications (synchro initiale)
+   * @returns {{changes: {aisles: object[], items: object[]}, events: object[]}}
+   */
+  merge(snap, { silent = false } = {}) {
+    const changes = { aisles: [], items: [] };
+    const events = [];
+    for (const coll of COLLECTIONS) {
+      const list = Array.isArray(snap?.[coll]) ? snap[coll] : [];
+      for (const raw of list) {
+        const r = CLEAN[coll](raw);
+        if (!r) continue;
+        const cur = this[coll].get(r.id);
+        if (cur && !wins(r, cur)) continue;
+        this._observe(r.updatedAt);
+        this[coll].set(r.id, r);
+        changes[coll].push(r);
+        if (!silent && coll === 'items' && !r.deleted && cur && !cur.checked && r.checked) {
+          events.push({ type: 'checked', item: r });
+        }
+      }
+    }
+    if (changes.aisles.length || changes.items.length) {
+      this._save();
+      this._emit('remote', changes, events);
+    }
+    return { changes, events };
+  }
+
+  // ---------- Lecture ----------
+
+  aisleList() {
+    return [...this.aisles.values()]
+      .filter((a) => !a.deleted)
+      .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name, 'fr'));
+  }
+
+  itemList() {
+    return [...this.items.values()].filter((i) => !i.deleted);
+  }
+
+  // ---------- Rayons ----------
+
+  addAisles(list) {
+    let order = Math.max(0, ...this.aisleList().map((a) => a.order));
+    const recs = list.map(({ name, description }) => ({
+      id: uid(), name: name.trim(), description: (description || '').trim(), order: ++order, deleted: false,
+    }));
+    return this._commit({ aisles: recs }).aisles;
+  }
+
+  addAisle(aisle) { return this.addAisles([aisle])[0]; }
+
+  updateAisle(id, patch) {
+    const cur = this.aisles.get(id);
+    if (cur && !cur.deleted) this._commit({ aisles: [{ ...cur, ...patch }] });
+  }
+
+  /** Supprime le rayon ; ses produits passent dans "Non classé". */
+  deleteAisle(id) {
+    const cur = this.aisles.get(id);
+    if (!cur) return;
+    const orphans = this.itemList().filter((i) => i.aisleId === id).map((i) => ({ ...i, aisleId: null }));
+    this._commit({ aisles: [{ ...cur, deleted: true }], items: orphans });
+  }
+
+  moveAisle(id, dir) {
+    const list = this.aisleList();
+    const i = list.findIndex((a) => a.id === id);
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= list.length) return;
+    [list[i], list[j]] = [list[j], list[i]];
+    const changed = list.map((a, k) => ({ ...a, order: k + 1 })).filter((a) => a.order !== this.aisles.get(a.id).order);
+    this._commit({ aisles: changed });
+  }
+
+  // ---------- Produits ----------
+
+  /**
+   * Ajoute des produits en évitant les doublons :
+   * - déjà dans la liste active → ignoré
+   * - déjà dans le panier → remis dans la liste
+   * @param {{name: string, aisleId: string|null}[]} entries
+   */
+  addItems(entries) {
+    const { name: me } = this.getUser();
+    const known = new Map();
+    for (const it of this.itemList()) {
+      const k = norm(it.name);
+      if (!known.has(k) || known.get(k).checked) known.set(k, it);
+    }
+    const out = [];
+    const result = { added: [], restored: [], skipped: [] };
+    for (const e of entries) {
+      const name = String(e.name || '').trim();
+      if (!name) continue;
+      const k = norm(name);
+      const cur = known.get(k);
+      if (cur && !cur.checked) { result.skipped.push(cur); continue; }
+      let rec;
+      if (cur) {
+        rec = { ...cur, checked: false, checkedBy: null, checkedAt: null, aisleId: e.aisleId ?? cur.aisleId };
+        result.restored.push(rec);
+      } else {
+        rec = {
+          id: uid(), name, aisleId: e.aisleId || null, checked: false, checkedBy: null, checkedAt: null,
+          addedBy: me, createdAt: Date.now(), deleted: false,
+        };
+        result.added.push(rec);
+      }
+      known.set(k, rec);
+      out.push(rec);
+    }
+    if (out.length) this._commit({ items: out });
+    return result;
+  }
+
+  updateItem(id, patch) {
+    const cur = this.items.get(id);
+    if (cur && !cur.deleted) this._commit({ items: [{ ...cur, ...patch }] });
+  }
+
+  setChecked(id, checked) {
+    const cur = this.items.get(id);
+    if (!cur || cur.deleted || cur.checked === checked) return;
+    const { name } = this.getUser();
+    this._commit({
+      items: [{ ...cur, checked, checkedBy: checked ? name : null, checkedAt: checked ? Date.now() : null }],
+    });
+  }
+
+  deleteItems(ids) {
+    const recs = ids.map((id) => this.items.get(id)).filter((i) => i && !i.deleted).map((i) => ({ ...i, deleted: true }));
+    this._commit({ items: recs });
+  }
+
+  /** Vide le panier (supprime les produits cochés). */
+  clearCart() {
+    this.deleteItems(this.itemList().filter((i) => i.checked).map((i) => i.id));
+  }
+}

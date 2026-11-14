@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#16a34a">
+  <meta name="description" content="Liste de courses partagée en temps réel, classée par rayon, avec dictée vocale Gemini.">
+  <title>Liste de courses</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/style.css">
+  <!-- PeerJS (WebRTC + signalisation publique gratuite) et générateur de QR code -->
+  <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js" defer></script>
+  <script type="module" src="js/app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true"><i data-icon="cart"></i></span>
+      <h1>Courses</h1>
+    </div>
+    <button id="status-pill" class="pill" data-status="offline" type="button" title="Partage et participants">
+      <span class="dot"></span><span class="pill-text">Hors ligne</span>
+    </button>
+    <button id="btn-share" class="icon-btn" type="button" aria-label="Partager la liste"><i data-icon="share"></i></button>
+    <button id="btn-settings" class="icon-btn" type="button" aria-label="Paramètres"><i data-icon="settings"></i></button>
+  </header>
+
+  <main>
+    <!-- Onglet Liste -->
+    <section id="view-list" class="view">
+      <form id="quick-add" class="quick-add" autocomplete="off">
+        <input id="qa-name" type="text" placeholder="Ajouter un produit…" enterkeyhint="done" aria-label="Produit(s) à ajouter">
+        <select id="qa-aisle" aria-label="Rayon"></select>
+        <button id="qa-submit" class="btn primary square" type="submit" aria-label="Ajouter"><i data-icon="plus"></i></button>
+      </form>
+      <div id="list"></div>
+      <div id="cart" class="cart"></div>
+    </section>
+
+    <!-- Onglet Rayons -->
+    <section id="view-aisles" class="view" hidden>
+      <div class="row-actions">
+        <button id="btn-add-aisle" class="btn primary" type="button"><i data-icon="plus"></i> Nouveau rayon</button>
+        <button id="btn-presets" class="btn" type="button">Rayons types</button>
+      </div>
+      <p class="hint">Décris le contenu de chaque rayon : la description sert à l'IA pour classer automatiquement les produits dictés. Réordonne les rayons dans l'ordre de ton magasin.</p>
+      <ul id="aisles" class="card-list"></ul>
+    </section>
+  </main>
+
+  <button id="fab-mic" class="fab" type="button" aria-label="Dicter ma liste"><i data-icon="mic"></i></button>
+
+  <nav class="tabbar">
+    <button type="button" data-tab="list" class="active"><i data-icon="list"></i><span>Liste</span><span id="badge-count" class="badge" hidden></span></button>
+    <button type="button" data-tab="aisles"><i data-icon="grid"></i><span>Rayons</span></button>
+  </nav>
+
+  <div id="toasts" aria-live="polite"></div>
+
+  <!-- Accueil (première ouverture) -->
+  <dialog id="dlg-onboard" class="sheet">
+    <form class="dlg-body" id="form-onboard">
+      <h2>Bienvenue 👋</h2>
+      <p class="muted" id="onboard-text">Choisis un prénom : il sera affiché aux autres quand tu ajoutes ou prends un produit.</p>
+      <label class="field">Ton prénom
+        <input id="onboard-name" type="text" maxlength="40" required autocomplete="given-name" enterkeyhint="go">
+      </label>
+      <div class="dlg-actions"><button class="btn primary" type="submit">C'est parti</button></div>
+    </form>
+  </dialog>
+
+  <!-- Édition produit -->
+  <dialog id="dlg-item" class="sheet">
+    <form class="dlg-body" id="form-item">
+      <h2>Modifier le produit</h2>
+      <label class="field">Nom <input id="item-name" type="text" maxlength="200" required></label>
+      <label class="field">Rayon <select id="item-aisle"></select></label>
+      <div class="dlg-actions">
+        <button class="btn danger-ghost spacer" type="button" data-action="delete">Supprimer</button>
+        <button class="btn" type="button" data-action="close">Annuler</button>
+        <button class="btn primary" type="submit">Enregistrer</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Édition rayon -->
+  <dialog id="dlg-aisle" class="sheet">
+    <form class="dlg-body" id="form-aisle">
+      <h2 id="aisle-title">Nouveau rayon</h2>
+      <label class="field">Nom <input id="aisle-name" type="text" maxlength="80" required placeholder="Ex. Crèmerie"></label>
+      <label class="field">Types de produits
+        <textarea id="aisle-desc" rows="3" maxlength="500" placeholder="Ex. lait, beurre, œufs, crème, yaourts"></textarea>
+        <small>Plus c'est précis, mieux l'IA classe.</small>
+      </label>
+      <div class="dlg-actions">
+        <button class="btn danger-ghost spacer" type="button" data-action="delete">Supprimer</button>
+        <button class="btn" type="button" data-action="close">Annuler</button>
+        <button class="btn primary" type="submit">Enregistrer</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Partage -->
+  <dialog id="dlg-share" class="sheet">
+    <div class="dlg-body">
+      <h2>Partager la liste</h2>
+      <div class="share-box">
+        <div id="share-qr" class="qr"></div>
+        <div class="share-info">
+          <span class="muted small">Code de la liste</span>
+          <strong id="share-code" class="code"></strong>
+          <div class="share-buttons">
+            <button class="btn" type="button" id="btn-copy-link"><i data-icon="copy"></i> Copier le lien</button>
+            <button class="btn" type="button" id="btn-native-share" hidden><i data-icon="share"></i> Envoyer</button>
+          </div>
+        </div>
+      </div>
+      <div>
+        <h3>Connectés</h3>
+        <ul id="share-members" class="members"></ul>
+      </div>
+      <form id="form-join" class="join">
+        <h3>Rejoindre une autre liste</h3>
+        <div class="inline">
+          <input id="join-code" type="text" placeholder="Code ou lien" autocomplete="off">
+          <button class="btn primary" type="submit">Rejoindre</button>
+        </div>
+      </form>
+      <div class="dlg-actions"><button class="btn" type="button" data-action="close">Fermer</button></div>
+    </div>
+  </dialog>
+
+  <!-- Paramètres -->
+  <dialog id="dlg-settings" class="sheet">
+    <form class="dlg-body" id="form-settings">
+      <h2>Paramètres</h2>
+      <label class="field">Ton prénom <input id="set-name" type="text" maxlength="40" required></label>
+      <fieldset>
+        <legend>IA vocale Gemini</legend>
+        <label class="field">Clé API
+          <input id="set-apikey" type="password" autocomplete="off" spellcheck="false" placeholder="AIza…">
+          <small>Gratuite sur <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>. Stockée uniquement sur cet appareil, jamais partagée avec les autres participants.</small>
+        </label>
+        <label class="field">Modèle
+          <input id="set-model" type="text" list="models" spellcheck="false">
+          <datalist id="models">
+            <option value="gemini-flash-lite-latest"></option>
+            <option value="gemini-flash-latest"></option>
+            <option value="gemini-2.5-flash"></option>
+            <option value="gemini-2.5-flash-lite"></option>
+          </datalist>
+        </label>
+      </fieldset>
+      <fieldset>
+        <legend>Mes listes</legend>
+        <ul id="set-rooms" class="rooms"></ul>
+        <div class="row-actions">
+          <button class="btn" type="button" data-action="new-list"><i data-icon="plus"></i> Nouvelle liste</button>
+          <button class="btn danger-ghost" type="button" data-action="forget-list">Retirer cette liste de l'appareil</button>
+        </div>
+      </fieldset>
+      <div class="dlg-actions">
+        <button class="btn" type="button" data-action="close">Annuler</button>
+        <button class="btn primary" type="submit">Enregistrer</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Dictée -->
+  <dialog id="dlg-rec" class="sheet">
+    <div class="dlg-body rec" data-state="recording">
+      <div class="rec-visual">
+        <div class="rec-orb"><i data-icon="mic"></i></div>
+        <div class="rec-level"><span id="rec-level"></span></div>
+      </div>
+      <p class="rec-title" id="rec-title">J'écoute…</p>
+      <p class="muted rec-sub" id="rec-sub">Dicte tes produits en vrac, par ex. « des bananes, du lait, 3 avocats et du liquide vaisselle ».</p>
+      <p class="rec-timer" id="rec-timer">0:00</p>
+      <div class="dlg-actions center">
+        <button class="btn" type="button" data-action="cancel">Annuler</button>
+        <button class="btn" type="button" data-action="retry" hidden>Réessayer</button>
+        <button class="btn primary" type="button" data-action="stop"><i data-icon="check"></i> Terminé</button>
+      </div>
+    </div>
+  </dialog>
+</body>
+</html>
