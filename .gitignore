@@ -1,3 +1,4 @@
 CLAUDE.md
 .vscode/*
-.sources
+sources/
+.claude/
