@@ -73,7 +73,7 @@ Les données d'une liste sont stockées sous `grossery:list:<code>`, les paramè
 
 - La liste `abcd1234` correspond à l'identifiant PeerJS `grossery-helper-v1-abcd1234`.
 - Au démarrage, chaque appareil tente de **réserver** cet identifiant sur le serveur de signalisation public de PeerJS. S'il réussit, il devient **hôte** (relais) ; sinon il s'y connecte comme **client**.
-- À la connexion, client et hôte échangent leur état complet et le fusionnent. Ensuite seules les modifications circulent, et l'hôte relaie celles d'un client vers tous les autres.
+- À la connexion, **synchronisation par différence** : le client envoie un résumé `[id, date, auteur]` de chaque enregistrement. L'hôte lui renvoie seulement ce qui lui manque ou qui est plus récent, et lui demande en retour ses modifications faites hors-ligne. Ensuite seules les modifications circulent, et l'hôte relaie celles d'un client vers tous les autres.
 - **Personne n'est indispensable** : si l'hôte part (onglet fermé, téléphone en veille), les clients le détectent (événement `close` ou absence de ping pendant 13 s) et recommencent l'élection. L'un d'eux devient hôte, les autres le rejoignent, sans perte de données puisque tout le monde a l'état complet.
 - Au retour au premier plan (`visibilitychange`) ou au retour du réseau (`online`), l'app se reconnecte immédiatement.
 

@@ -9,9 +9,10 @@
 //   3. L'hôte disparaît → les clients recommencent en 1 (avec un délai aléatoire) :
 //      l'un d'eux devient le nouvel hôte, les autres le rejoignent.
 //
-// À la connexion, client et hôte s'échangent leur état complet et le fusionnent (LWW), ce qui
-// propage aussi les modifications faites hors-ligne. Ensuite seules les modifications circulent ;
-// l'hôte relaie celles d'un client vers tous les autres.
+// À la connexion, synchro par différence : le client envoie un résumé [id, date, auteur] de son
+// état, l'hôte renvoie seulement les enregistrements qui manquent au client et demande ceux qui
+// lui manquent (modifications faites hors-ligne). Ensuite seules les modifications circulent ;
+// l'hôte relaie celles d'un client vers tous les autres. La fusion est LWW par enregistrement.
 //
 // Robustesse :
 // - sérialisation 'binary' : PeerJS découpe les gros messages (l'état complet dépasse vite 16 Ko,
@@ -93,6 +94,7 @@ const ERROR_MESSAGES = {
 };
 
 const isEmpty = (c) => !c || !COLLECTIONS.some((k) => c[k]?.length);
+const count = (c) => COLLECTIONS.reduce((n, k) => n + (Array.isArray(c?.[k]) ? c[k].length : 0), 0);
 const cleanName = (n) => String(n || '').slice(0, 60) || '…';
 const log = (...args) => console.info('[sync]', ...args);
 
@@ -291,9 +293,17 @@ export class Sync extends EventTarget {
       case 'hello': {
         client.name = cleanName(msg.user?.name);
         client.userId = String(msg.user?.id || '').slice(0, 64);
-        const { changes } = this.store.merge(msg.state, { silent: true });
-        this._send(client.conn, { type: 'state', state: this.store.snapshot() });
-        this._relay({ type: 'ops', changes, silent: true }, client);
+        if (msg.digest) {
+          // Synchro par différence : on n'envoie que ce qui manque au client, on demande ce qui nous manque.
+          const { send, want } = this.store.diff(msg.digest);
+          this._send(client.conn, { type: 'sync', records: send, want });
+          log(`synchro avec ${client.name} : ${count(send)} envoyé(s), ${count(want)} demandé(s)`);
+        } else {
+          // Client d'une version antérieure : échange de l'état complet.
+          const { changes } = this.store.merge(msg.state, { silent: true });
+          this._send(client.conn, { type: 'state', state: this.store.snapshot() });
+          this._relay({ type: 'ops', changes, silent: true }, client);
+        }
         this._updatePresence();
         break;
       }
@@ -397,7 +407,7 @@ export class Sync extends EventTarget {
         log('connecté au relais');
         this._online();
         const u = this.getUser();
-        this._send(conn, { type: 'hello', user: { id: u.userId, name: u.name }, state: this.store.snapshot() });
+        this._send(conn, { type: 'hello', user: { id: u.userId, name: u.name }, digest: this.store.digest() });
       });
       conn.on('data', (msg) => {
         if (this.hostConn !== conn) return;
@@ -440,8 +450,16 @@ export class Sync extends EventTarget {
   _onClientData(msg) {
     if (!msg || typeof msg !== 'object') return;
     switch (msg.type) {
-      case 'state':
+      case 'sync': {
+        this.store.merge(msg.records, { silent: true });
+        const mine = this.store.pick(msg.want);
+        if (!isEmpty(mine)) this._send(this.hostConn, { type: 'ops', changes: mine, silent: true });
+        log(`synchro : ${count(msg.records)} reçu(s), ${count(mine)} envoyé(s)`);
+        break;
+      }
+      case 'state': // relais d'une version antérieure : il attend aussi notre état complet
         this.store.merge(msg.state, { silent: true });
+        this._send(this.hostConn, { type: 'ops', changes: this.store.snapshot(), silent: true });
         break;
       case 'ops':
         this.store.merge(msg.changes, { silent: !!msg.silent });

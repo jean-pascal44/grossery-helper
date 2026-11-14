@@ -167,6 +167,51 @@ export class Store extends EventTarget {
     return Object.fromEntries(COLLECTIONS.map((c) => [c, [...this[c].values()]]));
   }
 
+  // ---------- Synchronisation par différence ----------
+
+  /** Résumé compact de l'état : [id, updatedAt, by] par enregistrement, sans le contenu. */
+  digest() {
+    return Object.fromEntries(COLLECTIONS.map((c) => [c, [...this[c].values()].map((r) => [r.id, r.updatedAt, r.by])]));
+  }
+
+  /**
+   * Compare un résumé distant à l'état local.
+   * @returns {{send: object, want: object}} send = enregistrements locaux plus récents ou absents
+   *   chez le pair (à lui envoyer) ; want = ids plus récents ou absents localement (à lui demander).
+   */
+  diff(digest) {
+    const send = emptyChanges();
+    const want = {};
+    for (const c of COLLECTIONS) {
+      const remote = new Map();
+      for (const e of Array.isArray(digest?.[c]) ? digest[c].slice(0, 20000) : []) {
+        if (Array.isArray(e) && typeof e[0] === 'string') remote.set(e[0], { updatedAt: Number(e[1]) || 0, by: String(e[2] || '') });
+      }
+      want[c] = [];
+      for (const [id, rv] of remote) {
+        const mine = this[c].get(id);
+        if (!mine || wins(rv, mine)) want[c].push(id);
+      }
+      for (const r of this[c].values()) {
+        const rv = remote.get(r.id);
+        if (!rv || wins(r, rv)) send[c].push(r);
+      }
+    }
+    return { send, want };
+  }
+
+  /** Enregistrements locaux correspondant à une liste d'ids demandés par un pair. */
+  pick(want) {
+    const out = emptyChanges();
+    for (const c of COLLECTIONS) {
+      for (const id of Array.isArray(want?.[c]) ? want[c] : []) {
+        const r = typeof id === 'string' ? this[c].get(id) : null;
+        if (r) out[c].push(r);
+      }
+    }
+    return out;
+  }
+
   _emit(source, changes, events = []) {
     this.dispatchEvent(new CustomEvent('change', { detail: { source, changes, events } }));
   }
