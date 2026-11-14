@@ -5,6 +5,15 @@ Toutes les évolutions notables de ce projet sont documentées ici.
 Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/)
 et le projet respecte le [versionnage sémantique](https://semver.org/lang/fr/).
 
+## [0.7.1] - 2026-11-14
+
+### Fixed
+- Un téléphone du réseau local ouvrant un lien de partage avec `signal=http://localhost:9000` cherchait le serveur de test sur lui-même (« Problème de connexion »). `localhost` y désigne désormais la machine qui sert la page : ouvert sur `http://192.168.1.x:8000`, le téléphone utilise `192.168.1.x:9000`.
+
+### Added
+- Avertissement dans le panneau de partage quand l'app est ouverte sur `localhost` : le lien et le QR code ne fonctionnent alors que sur cet ordinateur.
+- README : procédure de test sur téléphone du réseau local (adresse IP, pare-feu, HTTPS pour le micro) et contournement du mode réseau `mirrored` de WSL2 (`hostAddressLoopback`).
+
 ## [0.7.0] - 2026-11-14
 
 ### Added

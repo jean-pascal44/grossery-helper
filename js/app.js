@@ -1,7 +1,7 @@
 // Point d'entrée : interface, liaison Store <-> Sync <-> Gemini.
 
 import { Store, loadSettings, saveSettings, forgetList, peekList, DEFAULT_MODEL } from './store.js';
-import { Sync, getSignalServer, setSignalServer } from './sync.js';
+import { Sync, effectiveSignalServer, setSignalServer } from './sync.js';
 import { extractItems, UNCLASSIFIED } from './gemini.js';
 import { Recorder, toGeminiAudio } from './audio.js';
 import { PRESET_AISLES } from './presets.js';
@@ -42,7 +42,7 @@ function ai() {
 
 const aiErrorMessage = (err, cfg) => (cfg?.shared ? `${err.message} (clé partagée par ${cfg.sharedBy})` : err.message);
 const shareLink = () => {
-  const signal = getSignalServer(); // serveur de test : transmis pour que les autres le rejoignent
+  const signal = effectiveSignalServer(); // serveur de test : transmis pour que les autres le rejoignent
   return `${location.origin}${location.pathname}?room=${settings.room}${signal ? `&signal=${encodeURIComponent(signal)}` : ''}`;
 };
 
@@ -478,9 +478,13 @@ function openShare() {
     qrEl.innerHTML = '';
   }
   $('#btn-native-share').hidden = !navigator.share;
-  const signal = getSignalServer();
-  $('#share-signal').hidden = !signal;
-  $('#share-signal').textContent = signal ? `🧪 Serveur de mise en relation de test : ${signal}` : '';
+  const signal = effectiveSignalServer();
+  const localPage = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
+  const notes = [];
+  if (signal) notes.push(`🧪 Serveur de mise en relation de test : ${signal}`);
+  if (localPage) notes.push('⚠️ Ce lien pointe vers « localhost » : il ne fonctionne que sur cet ordinateur. Pour un téléphone du même réseau, ouvre l’app ici avec l’adresse IP de l’ordinateur (ex. http://192.168.1.20:8000) puis partage.');
+  $('#share-signal').hidden = !notes.length;
+  $('#share-signal').innerHTML = notes.map(esc).join('<br><br>');
   renderMembers();
   $('#dlg-share').showModal();
 }

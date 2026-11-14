@@ -31,6 +31,15 @@ python3 -m http.server 8000    # dans un autre terminal
 
 Ouvrir `http://localhost:8000/?signal=http://localhost:9000` : le choix est mémorisé par le navigateur et transmis dans le lien de partage. `?signal=default` revient au serveur public. Le panneau de partage indique quand un serveur de test est utilisé.
 
+**Avec un téléphone sur le même réseau Wi-Fi** :
+1. Sur l'ordinateur, ouvrir l'app avec son adresse IP et non `localhost`, par exemple `http://192.168.1.20:8000/?signal=http://localhost:9000`. Sinon, le lien de partage pointe vers `localhost`, qui sur le téléphone désigne le téléphone lui-même.
+2. Scanner le QR code du panneau de partage. Dans `signal`, `localhost` est automatiquement remplacé par l'adresse de la page.
+3. Les ports 8000 et 9000 doivent être accessibles depuis le réseau local (pare-feu). Vérification : `http://<ip>:9000/` doit afficher « PeerJS Server » dans le navigateur du téléphone.
+4. **WSL2 en mode réseau `mirrored`** : Windows ne peut pas joindre les serveurs lancés dans WSL par sa propre adresse IP (`http://192.168.1.x:8000` dépasse le délai d'attente sur le PC), alors que les autres appareils du réseau, eux, y accèdent. Deux solutions :
+   - garder `localhost` sur le PC, ouvrir `http://<ip>:8000/?signal=http://localhost:9000` sur le téléphone, puis rejoindre la liste avec son code (« Rejoindre une autre liste ») ; le QR code du PC, qui pointe vers `localhost`, est alors inutilisable ;
+   - ou ajouter `hostAddressLoopback=true` dans la section `[experimental]` de `%UserProfile%\.wslconfig`, puis exécuter `wsl --shutdown`. Ça arrête tous les processus WSL, serveurs compris, qu'il faut ensuite relancer. Le PC peut alors utiliser l'adresse IP et son QR code fonctionne.
+5. Le micro exige HTTPS : en `http://<ip>`, la dictée est indisponible sur le téléphone. Pour la tester, utiliser la version GitHub Pages, ou, dans Chrome Android, `chrome://flags/#unsafely-treat-insecure-origin-as-secure` avec `http://<ip>:8000`.
+
 ## Utilisation
 
 1. **Prénom** demandé à la première ouverture : il apparaît dans les notifications des autres.

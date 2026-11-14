@@ -53,8 +53,24 @@ export function setSignalServer(value) {
   } catch { return getSignalServer(); }
 }
 
-function peerOptions() {
+const LOCAL_HOSTS = ['localhost', '127.0.0.1', '[::1]'];
+
+/**
+ * URL effective du serveur de test. « localhost » y désigne la machine qui sert la page :
+ * sur un téléphone ouvert sur http://192.168.1.6:8000, il devient 192.168.1.6.
+ */
+export function effectiveSignalServer() {
   const s = getSignalServer();
+  if (!s) return null;
+  try {
+    const u = new URL(s);
+    if (LOCAL_HOSTS.includes(u.hostname) && !LOCAL_HOSTS.includes(location.hostname)) u.hostname = location.hostname;
+    return u.origin + u.pathname;
+  } catch { return null; }
+}
+
+function peerOptions() {
+  const s = effectiveSignalServer();
   if (!s) return PEER_OPTIONS;
   const u = new URL(s);
   const secure = u.protocol === 'https:';
