@@ -12,17 +12,89 @@
 // À la connexion, client et hôte s'échangent leur état complet et le fusionnent (LWW), ce qui
 // propage aussi les modifications faites hors-ligne. Ensuite seules les modifications circulent ;
 // l'hôte relaie celles d'un client vers tous les autres.
+//
+// Robustesse :
+// - sérialisation 'binary' : PeerJS découpe les gros messages (l'état complet dépasse vite 16 Ko,
+//   limite stricte de la sérialisation 'json') ;
+// - attente exponentielle entre les tentatives pour ne pas se faire limiter (HTTP 429) par le
+//   serveur public de signalisation ;
+// - l'hôte vérifie régulièrement qu'il est joignable (sonde) et se ré-enregistre sinon ;
+// - la cause du dernier échec est conservée (`lastError`) et affichée dans l'interface.
 
 import { COLLECTIONS } from './store.js';
 
 const PREFIX = 'grossery-helper-v1-';
 const PING_MS = 4000;
 const TIMEOUT_MS = 13000;
-const CONNECT_TIMEOUT_MS = 10000;
+const CONNECT_TIMEOUT_MS = 12000;
+const PROBE_EVERY_MS = 5 * 60000; // sonde peu fréquente : le serveur public limite les connexions
+const PROBE_MIN_GAP_MS = 30000;
+const PROBE_TIMEOUT_MS = 10000;
+const MAX_BACKOFF_MS = 30000;
 const SIGNALING_ERRORS = new Set(['network', 'socket-error', 'socket-closed', 'server-error', 'disconnected']);
+
+// Serveur de mise en relation : public (0.peerjs.com) par défaut, ou serveur de test choisi
+// avec ?signal=http://localhost:9000 (mémorisé dans le navigateur, ?signal=default pour revenir).
+const SIGNAL_KEY = 'grossery:signal';
+
+export function getSignalServer() {
+  try { return localStorage.getItem(SIGNAL_KEY) || null; } catch { return null; }
+}
+
+/** @param {string|null} value URL du serveur, ou 'default' / null pour le serveur public. */
+export function setSignalServer(value) {
+  try {
+    if (!value || value === 'default') { localStorage.removeItem(SIGNAL_KEY); return null; }
+    const u = new URL(value);
+    if (!/^https?:$/.test(u.protocol)) return getSignalServer();
+    localStorage.setItem(SIGNAL_KEY, u.origin + u.pathname);
+    return u.origin + u.pathname;
+  } catch { return getSignalServer(); }
+}
+
+function peerOptions() {
+  const s = getSignalServer();
+  if (!s) return PEER_OPTIONS;
+  const u = new URL(s);
+  const secure = u.protocol === 'https:';
+  return { ...PEER_OPTIONS, host: u.hostname, port: Number(u.port) || (secure ? 443 : 80), path: u.pathname || '/', secure, key: 'peerjs' };
+}
+
+// STUN de Google + relais TURN publics de PeerJS, en UDP et en TCP (le TCP passe mieux
+// les pare-feu et réseaux restrictifs ; s'il n'est pas disponible, il est simplement ignoré).
+const PEER_OPTIONS = {
+  debug: 0,
+  config: {
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      {
+        urls: [
+          'turn:eu-0.turn.peerjs.com:3478',
+          'turn:us-0.turn.peerjs.com:3478',
+          'turn:eu-0.turn.peerjs.com:3478?transport=tcp',
+          'turn:us-0.turn.peerjs.com:3478?transport=tcp',
+        ],
+        username: 'peerjs',
+        credential: 'peerjsp',
+      },
+    ],
+  },
+};
+
+const ERROR_MESSAGES = {
+  signaling: 'Serveur de mise en relation PeerJS injoignable ou saturé.',
+  'no-peerjs': 'Bibliothèque PeerJS non chargée (pas de connexion internet ?).',
+  'host-silent': 'Le relais ne répond pas : il est peut-être en veille ou déconnecté du serveur.',
+  ice: 'Connexion directe impossible : le réseau ou le navigateur bloque WebRTC.',
+  closed: 'Connexion avec le relais perdue.',
+  timeout: 'Le relais ne donne plus signe de vie.',
+  'host-deaf': "Ce relais n'était plus joignable : ré-enregistrement.",
+  webrtc: 'Erreur WebRTC du navigateur.',
+};
 
 const isEmpty = (c) => !c || !COLLECTIONS.some((k) => c[k]?.length);
 const cleanName = (n) => String(n || '').slice(0, 60) || '…';
+const log = (...args) => console.info('[sync]', ...args);
 
 export class Sync extends EventTarget {
   /**
@@ -42,6 +114,10 @@ export class Sync extends EventTarget {
     this.clients = new Map(); // peerId -> { conn, name, userId, lastSeen }
     this.members = []; // [{ id, userId, name, host }]
     this.lastSeen = 0;
+    this.failures = 0; // échecs consécutifs (pour l'attente exponentielle)
+    this.lastError = null; // { code, message, detail, at }
+    this._probe = null;
+    this._lastProbe = 0;
 
     this._onStoreChange = (e) => {
       if (e.detail.source === 'local') this._broadcastOps(e.detail.changes);
@@ -49,7 +125,10 @@ export class Sync extends EventTarget {
     this._onWake = () => {
       if (this.stopped || document.visibilityState !== 'visible') return;
       if (this.status !== 'online') this._connect();
-      else this._heartbeat();
+      else {
+        this._heartbeat();
+        if (this.role === 'host' && Date.now() - this._lastProbe > PROBE_MIN_GAP_MS) this._probeSelf();
+      }
     };
   }
 
@@ -81,11 +160,25 @@ export class Sync extends EventTarget {
     if (!this.stopped) this._connect();
   }
 
+  // ---------- Diagnostic ----------
+
+  _fail(code, detail = '') {
+    this.lastError = { code, message: ERROR_MESSAGES[code] || code, detail, at: Date.now() };
+    console.warn('[sync]', this.lastError.message, detail);
+  }
+
+  _online() {
+    this.failures = 0;
+    this.lastError = null;
+    this._setStatus('online');
+  }
+
   // ---------- Cycle de vie de la connexion ----------
 
   _teardown() {
     clearTimeout(this._retryTimer);
     clearTimeout(this._connTimer);
+    this._endProbe();
     const { peer, hostConn, clients } = this;
     this.peer = null;
     this.hostConn = null;
@@ -97,9 +190,13 @@ export class Sync extends EventTarget {
     try { peer?.destroy(); } catch { /* ignore */ }
   }
 
-  _retry(delay = 800 + Math.random() * 2200) {
+  /** Nouvelle tentative après un délai croissant (1 s, 2 s, 4 s… 30 s max, avec aléa). */
+  _retry({ fast = false } = {}) {
     if (this.stopped) return;
     this._teardown();
+    const base = fast ? 300 : 1000;
+    const delay = Math.min(MAX_BACKOFF_MS, base * 2 ** Math.min(this.failures, 6)) * (0.6 + Math.random() * 0.8);
+    this.failures++;
     this._setStatus('connecting');
     this._retryTimer = setTimeout(() => this._connect(), delay);
   }
@@ -108,13 +205,13 @@ export class Sync extends EventTarget {
     if (this.stopped) return;
     this._teardown();
     if (typeof window.Peer !== 'function') {
-      // Script PeerJS non chargé (hors-ligne ?) : on réessaie plus tard.
+      this._fail('no-peerjs');
       this._setStatus('offline');
       this._retryTimer = setTimeout(() => this._connect(), 10000);
       return;
     }
     this._setStatus('connecting');
-    const peer = new window.Peer(this.hostId, { debug: 0 });
+    const peer = new window.Peer(this.hostId, peerOptions());
     this.peer = peer;
     peer.on('open', () => {
       if (this.peer === peer) this._becomeHost(peer);
@@ -122,15 +219,23 @@ export class Sync extends EventTarget {
     peer.on('error', (err) => {
       if (this.peer !== peer) return;
       if (err.type === 'unavailable-id') {
-        if (this.role === 'host') this._retry(300); // quelqu'un a repris l'hôte pendant une coupure : on redevient client
-        else this._joinAsClient();
+        if (this.role === 'host') { // quelqu'un a repris l'hôte pendant une coupure : on redevient client
+          log("l'identifiant de la liste a été repris par un autre appareil");
+          this._retry({ fast: true });
+        } else {
+          this._joinAsClient();
+        }
         return;
       }
       if (SIGNALING_ERRORS.has(err.type) && this._hasLinks()) return; // les canaux WebRTC tiennent encore
+      this._fail(SIGNALING_ERRORS.has(err.type) ? 'signaling' : 'webrtc', err.type);
       this._retry();
     });
     peer.on('disconnected', () => {
-      if (this.peer === peer && !this._hasLinks()) this._retry();
+      if (this.peer === peer && !this._hasLinks()) {
+        this._fail('signaling', 'disconnected');
+        this._retry();
+      }
     });
   }
 
@@ -142,17 +247,25 @@ export class Sync extends EventTarget {
 
   _becomeHost(peer) {
     this.role = 'host';
+    this._lastProbe = Date.now();
+    log('relais de la liste (hôte)');
     peer.on('connection', (conn) => this._acceptClient(peer, conn));
     this._updatePresence();
-    this._setStatus('online');
+    this._online();
   }
 
   _acceptClient(peer, conn) {
     if (this.peer !== peer) { try { conn.close(); } catch { /* ignore */ } return; }
+    if (conn.metadata?.probe) { // sonde envoyée par nous-mêmes : on est bien joignable
+      this._probe?.finish(true);
+      try { conn.close(); } catch { /* ignore */ }
+      return;
+    }
     const client = { conn, name: cleanName(conn.metadata?.name), userId: null, lastSeen: Date.now() };
     conn.on('open', () => {
       if (this.peer !== peer) return;
       this.clients.set(conn.peer, client);
+      log(`${client.name} connecté`);
       this._updatePresence();
     });
     conn.on('data', (msg) => {
@@ -160,13 +273,15 @@ export class Sync extends EventTarget {
       client.lastSeen = Date.now();
       this._onHostData(client, msg);
     });
-    const drop = () => {
+    const drop = (err) => {
+      if (err?.type === 'message-too-big') { console.warn('[sync] message trop volumineux', err); return; }
       if (this.clients.get(conn.peer) === client) {
         this.clients.delete(conn.peer);
+        log(`${client.name} déconnecté${err?.type ? ` (${err.type})` : ''}`);
         this._updatePresence();
       }
     };
-    conn.on('close', drop);
+    conn.on('close', () => drop());
     conn.on('error', drop);
   }
 
@@ -207,6 +322,46 @@ export class Sync extends EventTarget {
     this._setStatus(this.status);
   }
 
+  /**
+   * Vérifie que le relais est réellement joignable : un pair temporaire tente de s'y connecter.
+   * Si la demande n'arrive jamais alors que le serveur répond, le relais est "sourd"
+   * (connexion au serveur morte sans que le navigateur s'en aperçoive) : on se ré-enregistre.
+   */
+  _probeSelf() {
+    if (this.role !== 'host' || this._probe || typeof window.Peer !== 'function') return;
+    const host = this.peer;
+    this._lastProbe = Date.now();
+    const probePeer = new window.Peer(peerOptions());
+    let opened = false;
+    const probe = {
+      finish: (reachable) => {
+        if (this._probe !== probe) return;
+        this._endProbe();
+        if (!reachable && this.peer === host && this.role === 'host') {
+          this._fail('host-deaf');
+          this._retry({ fast: true });
+        }
+      },
+      destroy: () => {
+        clearTimeout(probe.timer);
+        try { probePeer.destroy(); } catch { /* ignore */ }
+      },
+    };
+    this._probe = probe;
+    // Sans ouverture de la sonde (serveur injoignable), on ne conclut rien.
+    probe.timer = setTimeout(() => probe.finish(!opened), PROBE_TIMEOUT_MS);
+    probePeer.on('open', () => {
+      opened = true;
+      probePeer.connect(this.hostId, { metadata: { probe: true }, serialization: 'binary' });
+    });
+    probePeer.on('error', (err) => probe.finish(err.type !== 'peer-unavailable'));
+  }
+
+  _endProbe() {
+    this._probe?.destroy();
+    this._probe = null;
+  }
+
   // ---------- Rôle client ----------
 
   _joinAsClient() {
@@ -215,19 +370,23 @@ export class Sync extends EventTarget {
     const claimPeer = this.peer;
     this.peer = null;
     try { claimPeer?.destroy(); } catch { /* ignore */ }
-    const peer = new window.Peer({ debug: 0 });
+    const peer = new window.Peer(peerOptions());
     this.peer = peer;
 
     peer.on('open', () => {
       if (this.peer !== peer) return;
       const conn = peer.connect(this.hostId, {
         reliable: true,
-        serialization: 'json',
+        serialization: 'binary',
         metadata: { name: this.getUser().name },
       });
       this.hostConn = conn;
       this._connTimer = setTimeout(() => {
-        if (this.hostConn === conn && !conn.open) this._retry();
+        if (this.hostConn !== conn || conn.open) return;
+        const pc = conn.peerConnection;
+        if (!pc || pc.signalingState === 'have-local-offer') this._fail('host-silent');
+        else this._fail('ice', `état ICE : ${pc.iceConnectionState}`);
+        this._retry();
       }, CONNECT_TIMEOUT_MS);
 
       conn.on('open', () => {
@@ -235,29 +394,46 @@ export class Sync extends EventTarget {
         clearTimeout(this._connTimer);
         this.role = 'client';
         this.lastSeen = Date.now();
+        log('connecté au relais');
+        this._online();
         const u = this.getUser();
         this._send(conn, { type: 'hello', user: { id: u.userId, name: u.name }, state: this.store.snapshot() });
-        this._setStatus('online');
       });
       conn.on('data', (msg) => {
         if (this.hostConn !== conn) return;
         this.lastSeen = Date.now();
         this._onClientData(msg);
       });
-      const lost = () => { if (this.hostConn === conn) this._retry(); };
-      conn.on('close', lost);
-      conn.on('error', lost);
+      conn.on('close', () => {
+        if (this.hostConn !== conn) return;
+        this._fail('closed');
+        this._retry({ fast: true }); // le relais est peut-être parti : réélection rapide
+      });
+      conn.on('error', (err) => {
+        if (this.hostConn !== conn) return;
+        if (err?.type === 'message-too-big') { console.warn('[sync] message trop volumineux', err); return; }
+        this._fail(err?.type === 'negotiation-failed' ? 'ice' : 'closed', err?.type || '');
+        this._retry();
+      });
     });
 
     peer.on('error', (err) => {
       if (this.peer !== peer) return;
       // L'hôte n'existe plus : on retente vite pour que quelqu'un reprenne le rôle.
-      if (err.type === 'peer-unavailable') { this._retry(200 + Math.random() * 1000); return; }
+      if (err.type === 'peer-unavailable') {
+        log('relais introuvable : nouvelle élection');
+        this._retry({ fast: true });
+        return;
+      }
       if (SIGNALING_ERRORS.has(err.type) && this._hasLinks()) return;
+      this._fail(SIGNALING_ERRORS.has(err.type) ? 'signaling' : 'webrtc', err.type);
       this._retry();
     });
     peer.on('disconnected', () => {
-      if (this.peer === peer && !this._hasLinks()) this._retry();
+      if (this.peer === peer && !this._hasLinks()) {
+        this._fail('signaling', 'disconnected');
+        this._retry();
+      }
     });
   }
 
@@ -315,9 +491,14 @@ export class Sync extends EventTarget {
         }
       }
       if (changed) this._updatePresence();
+      if (now - this._lastProbe > PROBE_EVERY_MS) this._probeSelf();
     } else if (this.role === 'client') {
-      if (now - this.lastSeen > TIMEOUT_MS) this._retry(200);
-      else this._send(this.hostConn, { type: 'ping' });
+      if (now - this.lastSeen > TIMEOUT_MS) {
+        this._fail('timeout');
+        this._retry({ fast: true });
+      } else {
+        this._send(this.hostConn, { type: 'ping' });
+      }
     }
   }
 

@@ -20,6 +20,17 @@ HTTPS est obligatoire pour le micro : GitHub Pages le fournit. En local, `localh
 python3 -m http.server 8000   # puis http://localhost:8000
 ```
 
+### Tests en local sans le serveur public
+
+Le serveur public PeerJS bloque temporairement (HTTP 429) une adresse IP qui ouvre trop de connexions, ce qui arrive vite en testant. Pour tester avec plusieurs navigateurs, lancer un serveur de mise en relation local :
+
+```bash
+npm run signaling              # serveur PeerJS local sur le port 9000
+python3 -m http.server 8000    # dans un autre terminal
+```
+
+Ouvrir `http://localhost:8000/?signal=http://localhost:9000` : le choix est mémorisé par le navigateur et transmis dans le lien de partage. `?signal=default` revient au serveur public. Le panneau de partage indique quand un serveur de test est utilisé.
+
 ## Utilisation
 
 1. **Prénom** demandé à la première ouverture : il apparaît dans les notifications des autres.
@@ -82,6 +93,6 @@ Le modèle se règle dans les paramètres. Par défaut, c'est l'alias `gemini-fl
 
 - **Sécurité** : quiconque connaît le code (8 caractères aléatoires, environ 850 milliards de combinaisons) peut rejoindre la liste. Les échanges WebRTC sont chiffrés (DTLS), mais il n'y a pas d'authentification. C'est suffisant pour une liste de courses, pas pour des données sensibles.
 - **Clé Gemini partagée** : elle est accessible (outils développeur) à toute personne ayant le lien de la liste. Avec une clé gratuite, le risque se limite à l'épuisement du quota. Avec la facturation activée, restreindre la clé par domaine et fixer un plafond de dépenses.
-- **Dépendance au serveur public PeerJS** pour la mise en relation. S'il est indisponible, l'app reste utilisable en local et se synchronise plus tard. Pour plus de fiabilité, on peut héberger son propre `peerjs-server` et passer `{ host, port, path }` à `new Peer()` dans `js/sync.js`.
+- **Dépendance au serveur public PeerJS** pour la mise en relation. Il limite le nombre de connexions par adresse IP : trop de tentatives rapprochées (plusieurs onglets bloqués, tests automatisés) déclenchent un blocage temporaire (HTTP 429), et les appareils restent alors sur « Problème de connexion » quelques minutes. S'il est indisponible, l'app reste utilisable en local et se synchronise plus tard. Pour plus de fiabilité, on peut héberger son propre `peerjs-server` et ajouter `host`, `port` et `path` dans `PEER_OPTIONS` (`js/sync.js`).
 - **iOS** : un onglet Safari en arrière-plan perd sa connexion. L'app se reconnecte au retour au premier plan et la fusion rattrape les modifications.
 - Ajouts concurrents du **même produit** par deux personnes au même instant : les deux entrées peuvent coexister (ids différents). Il suffit d'en supprimer une.

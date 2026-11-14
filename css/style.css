@@ -246,18 +246,19 @@ main { max-width: 640px; margin: 0 auto; padding: 0 16px; }
   width: min(560px, calc(100% - 32px)); display: flex; flex-direction: column; gap: 8px; pointer-events: none;
 }
 .toast {
-  pointer-events: auto; display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 12px;
+  display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 12px;
   background: var(--toast-bg); color: var(--toast-text); font-size: 14px; box-shadow: 0 8px 24px rgb(0 0 0 / 0.2);
-  animation: toast-in 0.2s ease-out; cursor: pointer;
+  animation: toast-in 0.2s ease-out; pointer-events: none;
 }
-.toast.with-avatar.taken::before, .toast.with-avatar.success::before { display: none; }
-.toast.taken::before, .toast.success::before {
+.toast.success::before {
   content: "✓"; flex: none; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center;
   background: var(--accent); color: #fff; font-weight: 700; font-size: 13px;
 }
 .toast.error { background: var(--danger); color: #fff; }
 .toast-msg { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.toast button { flex: none; border: 0; background: transparent; color: inherit; font: inherit; font-weight: 700; text-decoration: underline; cursor: pointer; padding: 4px; }
+.toast.taken .toast-msg { display: flex; flex-direction: column; gap: 8px; }
+.taken-line { display: flex; align-items: center; gap: 10px; }
+.toast button { pointer-events: auto; flex: none; border: 0; background: transparent; color: inherit; font: inherit; font-weight: 700; text-decoration: underline; cursor: pointer; padding: 4px; }
 .toast.out { opacity: 0; transform: translateY(-6px); transition: 0.2s; }
 @keyframes toast-in { from { opacity: 0; transform: translateY(-8px); } }
 
@@ -301,6 +302,7 @@ legend { padding: 0 6px; font-size: 13px; font-weight: 700; color: var(--muted);
 .share-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
 .members { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .members li { display: flex; align-items: center; gap: 10px; }
+.members li.diag { display: block; padding: 10px 12px; border-radius: 12px; font-size: 14px; background: color-mix(in srgb, var(--warn) 15%, transparent); }
 .tag { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--surface-2); color: var(--muted); }
 .join { display: flex; flex-direction: column; }
 

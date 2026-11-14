@@ -1,7 +1,7 @@
 // Point d'entrée : interface, liaison Store <-> Sync <-> Gemini.
 
 import { Store, loadSettings, saveSettings, forgetList, peekList, DEFAULT_MODEL } from './store.js';
-import { Sync } from './sync.js';
+import { Sync, getSignalServer, setSignalServer } from './sync.js';
 import { extractItems, UNCLASSIFIED } from './gemini.js';
 import { Recorder, toGeminiAudio } from './audio.js';
 import { PRESET_AISLES } from './presets.js';
@@ -41,7 +41,10 @@ function ai() {
 }
 
 const aiErrorMessage = (err, cfg) => (cfg?.shared ? `${err.message} (clé partagée par ${cfg.sharedBy})` : err.message);
-const shareLink = () => `${location.origin}${location.pathname}?room=${settings.room}`;
+const shareLink = () => {
+  const signal = getSignalServer(); // serveur de test : transmis pour que les autres le rejoignent
+  return `${location.origin}${location.pathname}?room=${settings.room}${signal ? `&signal=${encodeURIComponent(signal)}` : ''}`;
+};
 
 // =====================================================================
 // Liste courante (room)
@@ -73,14 +76,28 @@ function onStoreChange(e) {
   scheduleRender();
 }
 
+// Coches des autres regroupées dans une seule notification, mise à jour en place.
+let takenGroup = null; // { handle, byPerson: Map<clé, { who, names: string[] }> }
+
 function notifyRemote(events) {
   const checked = events.filter((e) => e.type === 'checked');
-  for (const ev of checked.slice(0, 3)) {
-    const who = person(ev.item.checkedById, ev.item.checkedBy);
-    toast(`<b>${esc(who.name)}</b> a pris : ${esc(ev.item.name)}`, { kind: 'taken', avatar: avatarHtml(who, 'md') });
+  if (!checked.length) return;
+  if (!takenGroup?.handle.alive) takenGroup = { handle: null, byPerson: new Map() };
+  for (const { item } of checked) {
+    const key = item.checkedById || item.checkedBy || '?';
+    const group = takenGroup.byPerson.get(key) || { who: person(item.checkedById, item.checkedBy), names: [] };
+    group.names.push(item.name);
+    takenGroup.byPerson.set(key, group);
   }
-  if (checked.length > 3) toast(`… et ${checked.length - 3} autres produits pris`, { kind: 'taken' });
-  if (checked.length) navigator.vibrate?.(60);
+  const html = [...takenGroup.byPerson.values()].map(({ who, names }) => {
+    const list = names.length > 4
+      ? `${names.slice(0, 3).map(esc).join(', ')} +${names.length - 3}`
+      : names.map(esc).join(', ');
+    return `<span class="taken-line">${avatarHtml(who, 'sm')}<span><b>${esc(who.name)}</b> a pris : ${list}</span></span>`;
+  }).join('');
+  if (takenGroup.handle?.alive) takenGroup.handle.update(html);
+  else takenGroup.handle = toast(html, { kind: 'taken', slot: 'taken', duration: 4000 });
+  navigator.vibrate?.(60);
 }
 
 // =====================================================================
@@ -225,7 +242,8 @@ function renderStatus() {
     ? sync.members.slice(0, 3).map((m) => avatarHtml(person(m.userId, m.name), 'xs')).join('') : '';
   $('.pill-text', pill).textContent =
     status === 'online' ? (others ? String(n) : 'En ligne')
-      : status === 'connecting' ? 'Connexion…' : 'Hors ligne';
+      : status === 'connecting' ? (sync.failures >= 3 ? 'Problème de connexion' : 'Connexion…') : 'Hors ligne';
+  if (status !== 'online' && sync?.lastError) pill.title = sync.lastError.message;
   if ($('#dlg-share').open) renderMembers();
 }
 
@@ -233,7 +251,10 @@ function renderMembers() {
   const el = $('#share-members');
   const status = sync?.status;
   if (status !== 'online') {
-    el.innerHTML = `<li class="muted">${status === 'connecting' ? 'Connexion en cours…' : 'Hors ligne'}</li>`;
+    const err = sync?.lastError;
+    const attempt = sync?.failures > 1 ? ` (tentative ${sync.failures})` : '';
+    el.innerHTML = `<li class="muted">${status === 'connecting' ? `Connexion en cours…${attempt}` : 'Hors ligne'}</li>`
+      + (err ? `<li class="diag">⚠️ ${esc(err.message)}${err.detail ? ` <span class="muted small">(${esc(err.detail)})</span>` : ''}</li>` : '');
     return;
   }
   const selfId = sync.selfId;
@@ -248,27 +269,45 @@ function renderMembers() {
 // Toasts
 // =====================================================================
 
-function toast(html, { kind = 'info', action = null, duration = 3500, avatar = '' } = {}) {
-  const box = $('#toasts');
+// Une notification au plus par emplacement ('info' par défaut, 'taken' pour les coches des autres) :
+// une nouvelle remplace la précédente au lieu de s'empiler. Les notifications laissent passer
+// les clics (seul un éventuel bouton d'action est cliquable), pour ne jamais gêner la liste.
+const toastSlots = new Map();
+
+function toast(html, { kind = 'info', action = null, duration = 3500, slot = 'info' } = {}) {
+  toastSlots.get(slot)?.dismiss(true);
+  const life = action ? Math.max(duration, 5000) : duration;
   const el = document.createElement('div');
-  el.className = `toast ${kind}${avatar ? ' with-avatar' : ''}`;
-  el.innerHTML = `${avatar}<span class="toast-msg">${html}</span>`;
-  const dismiss = () => {
-    if (!el.isConnected) return;
-    el.classList.add('out');
-    setTimeout(() => el.remove(), 200);
+  el.className = `toast ${kind}`;
+  el.innerHTML = '<span class="toast-msg"></span>';
+  let timer;
+  const handle = {
+    get alive() { return toastSlots.get(slot) === handle; },
+    update(newHtml) {
+      $('.toast-msg', el).innerHTML = newHtml;
+      clearTimeout(timer);
+      timer = setTimeout(() => handle.dismiss(), life);
+    },
+    dismiss(immediate = false) {
+      clearTimeout(timer);
+      if (handle.alive) toastSlots.delete(slot);
+      if (!el.isConnected) return;
+      if (immediate) { el.remove(); return; }
+      el.classList.add('out');
+      setTimeout(() => el.remove(), 200);
+    },
   };
   if (action) {
     const b = document.createElement('button');
     b.type = 'button';
     b.textContent = action.label;
-    b.onclick = (e) => { e.stopPropagation(); action.fn(); dismiss(); };
+    b.onclick = () => { action.fn(); handle.dismiss(); };
     el.append(b);
   }
-  el.addEventListener('click', dismiss);
-  box.append(el);
-  while (box.children.length > 4) box.firstElementChild.remove();
-  setTimeout(dismiss, action ? Math.max(duration, 5000) : duration);
+  toastSlots.set(slot, handle);
+  $('#toasts').append(el);
+  handle.update(html);
+  return handle;
 }
 
 // =====================================================================
@@ -281,8 +320,7 @@ function checkItem(id) {
   setTimeout(() => {
     const it = store.items.get(id);
     if (!it || it.checked || it.deleted) return;
-    store.setChecked(id, true);
-    toast(`${esc(it.name)} → panier`, { kind: 'taken', action: { label: 'Annuler', fn: () => store.setChecked(id, false) } });
+    store.setChecked(id, true); // pas de notification : l'annulation se fait depuis « Dans le panier »
   }, 180);
 }
 
@@ -411,6 +449,9 @@ function openShare() {
     qrEl.innerHTML = '';
   }
   $('#btn-native-share').hidden = !navigator.share;
+  const signal = getSignalServer();
+  $('#share-signal').hidden = !signal;
+  $('#share-signal').textContent = signal ? `🧪 Serveur de mise en relation de test : ${signal}` : '';
   renderMembers();
   $('#dlg-share').showModal();
 }
@@ -756,7 +797,8 @@ function boot() {
   // Lien de partage : ?room=CODE
   const params = new URLSearchParams(location.search);
   const urlRoom = parseRoom(params.get('room'));
-  if (params.has('room')) history.replaceState(null, '', location.pathname);
+  if (params.has('signal')) setSignalServer(params.get('signal'));
+  if (params.has('room') || params.has('signal')) history.replaceState(null, '', location.pathname);
   const joining = !!urlRoom && urlRoom !== settings.room;
 
   openRoom(urlRoom || settings.room || roomCode());

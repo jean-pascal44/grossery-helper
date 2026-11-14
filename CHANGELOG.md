@@ -5,6 +5,33 @@ Toutes les évolutions notables de ce projet sont documentées ici.
 Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/)
 et le projet respecte le [versionnage sémantique](https://semver.org/lang/fr/).
 
+## [0.5.0] - 2026-11-14
+
+### Added
+- Diagnostic de connexion dans le panneau de partage (« Le relais ne répond pas », « Connexion directe impossible… », « Serveur de mise en relation injoignable ou saturé »…), numéro de tentative, et journal `[sync]` dans la console du navigateur. La pastille indique « Problème de connexion » après 3 échecs.
+- Le relais vérifie qu'il est réellement joignable (sonde toutes les 5 min et au retour au premier plan) et se ré-enregistre s'il ne l'est plus, au lieu de rester « En ligne » sans recevoir personne.
+- Relais TURN en TCP en plus de l'UDP, pour les réseaux et navigateurs restrictifs.
+- Serveur de mise en relation de test : `npm run signaling` lance un serveur PeerJS local (port 9000), activé dans l'app par `?signal=http://localhost:9000` (mémorisé, transmis dans le lien de partage, `?signal=default` pour revenir au serveur public). Évite les blocages 429 du serveur public pendant les tests.
+
+### Changed
+- Attente progressive entre les tentatives de connexion (1 s, 2 s, 4 s… jusqu'à 30 s) au lieu de réessayer toutes les 1 à 3 s, pour ne plus être bloqué (HTTP 429) par le serveur public PeerJS.
+
+### Fixed
+- Impossible de rejoindre une liste dès que son état dépassait 16 Ko (avatars photo, nombreux produits) : la sérialisation `json` de PeerJS refuse ces messages, ce qui provoquait une boucle de reconnexion infinie (« Connexion… » permanent, listes qui divergent). Passage à la sérialisation `binary`, qui découpe les gros messages.
+- Une erreur d'envoi d'un message trop volumineux n'est plus traitée comme une coupure de connexion.
+
+## [0.4.0] - 2026-11-14
+
+### Changed
+- Les coches des autres participants sont regroupées dans une seule notification mise à jour en place (« Bob a pris : Lait, Pain, Œufs +2 », une ligne par personne), qui disparaît 4 s après la dernière coche.
+- Une seule notification d'information à la fois : une nouvelle remplace la précédente au lieu de s'empiler.
+
+### Removed
+- Notification « Produit → panier · Annuler » quand on coche soi-même : l'annulation se fait en touchant le produit dans « Dans le panier ».
+
+### Fixed
+- Cocher plusieurs produits d'affilée empilait des notifications qui masquaient la liste et interceptaient les clics, au point d'annuler une coche par erreur. Les notifications laissent désormais passer les clics, sauf sur leur éventuel bouton d'action.
+
 ## [0.3.0] - 2026-11-14
 
 ### Added
