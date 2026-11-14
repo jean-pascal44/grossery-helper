@@ -72,8 +72,17 @@ function cleanItem(r) {
   };
 }
 
-const CLEAN = { aisles: cleanAisle, items: cleanItem };
-const COLLECTIONS = ['aisles', 'items'];
+// Réglages partagés de la liste. Seul l'enregistrement 'gemini' existe : clé API partagée volontairement.
+function cleanMeta(r) {
+  const base = baseFields(r);
+  if (!base || base.id !== 'gemini') return null;
+  return { ...base, apiKey: base.deleted ? '' : str(r.apiKey, 200), model: str(r.model, 80), sharedBy: str(r.sharedBy, 60) };
+}
+
+const CLEAN = { aisles: cleanAisle, items: cleanItem, meta: cleanMeta };
+const COLLECTIONS = ['aisles', 'items', 'meta'];
+const emptyChanges = () => ({ aisles: [], items: [], meta: [] });
+const hasChanges = (c) => COLLECTIONS.some((k) => c[k].length);
 
 /** `a` l'emporte-t-il sur `b` ? Égalité départagée par l'id d'auteur pour un ordre total. */
 const wins = (a, b) => a.updatedAt > b.updatedAt || (a.updatedAt === b.updatedAt && a.by > b.by);
@@ -91,6 +100,7 @@ export class Store extends EventTarget {
     this.getUser = getUser;
     this.aisles = new Map();
     this.items = new Map();
+    this.meta = new Map();
     this.clock = 0;
     this._saveTimer = null;
     this._load();
@@ -137,7 +147,7 @@ export class Store extends EventTarget {
 
   /** État complet, pierres tombales comprises (pour la synchro). */
   snapshot() {
-    return { aisles: [...this.aisles.values()], items: [...this.items.values()] };
+    return { aisles: [...this.aisles.values()], items: [...this.items.values()], meta: [...this.meta.values()] };
   }
 
   _emit(source, changes, events = []) {
@@ -147,7 +157,7 @@ export class Store extends EventTarget {
   /** Applique des modifications locales (horodatage + diffusion). */
   _commit(changes) {
     const { userId } = this.getUser();
-    const out = { aisles: [], items: [] };
+    const out = emptyChanges();
     for (const coll of COLLECTIONS) {
       for (const rec of changes[coll] || []) {
         const r = { ...rec, updatedAt: this._tick(), by: userId };
@@ -155,7 +165,7 @@ export class Store extends EventTarget {
         out[coll].push(r);
       }
     }
-    if (out.aisles.length || out.items.length) {
+    if (hasChanges(out)) {
       this._save();
       this._emit('local', out);
     }
@@ -169,7 +179,7 @@ export class Store extends EventTarget {
    * @returns {{changes: {aisles: object[], items: object[]}, events: object[]}}
    */
   merge(snap, { silent = false } = {}) {
-    const changes = { aisles: [], items: [] };
+    const changes = emptyChanges();
     const events = [];
     for (const coll of COLLECTIONS) {
       const list = Array.isArray(snap?.[coll]) ? snap[coll] : [];
@@ -186,7 +196,7 @@ export class Store extends EventTarget {
         }
       }
     }
-    if (changes.aisles.length || changes.items.length) {
+    if (hasChanges(changes)) {
       this._save();
       this._emit('remote', changes, events);
     }
@@ -203,6 +213,24 @@ export class Store extends EventTarget {
 
   itemList() {
     return [...this.items.values()].filter((i) => !i.deleted);
+  }
+
+  // ---------- Clé Gemini partagée ----------
+
+  /** @returns {{apiKey: string, model: string, sharedBy: string, by: string} | null} */
+  sharedAi() {
+    const r = this.meta.get('gemini');
+    return r && !r.deleted && r.apiKey ? r : null;
+  }
+
+  setSharedAi({ apiKey, model, sharedBy }) {
+    this._commit({ meta: [{ id: 'gemini', apiKey, model, sharedBy, deleted: false }] });
+  }
+
+  /** Retire la clé partagée (pierre tombale sans la clé, propagée à tous). */
+  clearSharedAi() {
+    const cur = this.meta.get('gemini');
+    if (cur && !cur.deleted) this._commit({ meta: [{ ...cur, apiKey: '', deleted: true }] });
   }
 
   // ---------- Rayons ----------

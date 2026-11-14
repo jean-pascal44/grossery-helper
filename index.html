@@ -141,7 +141,7 @@
         <legend>IA vocale Gemini</legend>
         <label class="field">Clé API
           <input id="set-apikey" type="password" autocomplete="off" spellcheck="false" placeholder="AIza…">
-          <small>Gratuite sur <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>. Stockée uniquement sur cet appareil, jamais partagée avec les autres participants.</small>
+          <small>Gratuite sur <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>. Stockée sur cet appareil ; partagée avec les participants seulement si tu coches la case ci-dessous.</small>
         </label>
         <label class="field">Modèle
           <input id="set-model" type="text" list="models" spellcheck="false">
@@ -152,6 +152,13 @@
             <option value="gemini-2.5-flash-lite"></option>
           </datalist>
         </label>
+        <label class="check-row">
+          <input id="set-share-key" type="checkbox">
+          <span>Partager ma clé avec les participants de cette liste
+            <small>Ils pourront dicter sans configurer de clé. Toute personne ayant le lien de la liste pourra l'utiliser : pense à restreindre la clé à l'adresse de ton site dans Google Cloud Console.</small>
+          </span>
+        </label>
+        <p id="set-shared-info" class="info" hidden></p>
       </fieldset>
       <fieldset>
         <legend>Mes listes</legend>

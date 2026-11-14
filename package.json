@@ -1,6 +1,6 @@
 {
   "name": "grossery-helper",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Liste de courses partagée en temps réel (WebRTC), classée par rayon, avec dictée vocale Gemini.",
   "private": true,
   "type": "module",

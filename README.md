@@ -28,7 +28,10 @@ python3 -m http.server 8000   # puis http://localhost:8000
 4. **Dictée** : bouton micro, dicter « des bananes, du lait, 3 avocats et du liquide vaisselle », puis *Terminé*. Les produits déjà présents ne sont pas dupliqués, ceux du panier sont remis dans la liste. Un bouton *Annuler* permet de retirer l'ajout.
 5. **Cocher** : toucher un produit le passe dans « Dans le panier » (repliable en bas, toucher pour le remettre dans la liste).
 6. **Partager** : icône de partage ou pastille d'état. Lien, QR code ou code à 8 caractères. Le panneau liste les personnes connectées.
-7. **Clé Gemini** : *Paramètres*, clé gratuite sur <https://aistudio.google.com/apikey>. Elle reste dans le `localStorage` de l'appareil et n'est jamais envoyée aux autres participants. Chacun peut dicter avec sa propre clé ; sans clé, tout fonctionne sauf la dictée.
+7. **Clé Gemini** : *Paramètres*, clé gratuite sur <https://aistudio.google.com/apikey>. Elle est stockée dans le `localStorage` de l'appareil. Sans clé, tout fonctionne sauf la dictée et « Auto (IA) ».
+   - **Une seule clé pour tous** : cocher « Partager ma clé avec les participants de cette liste ». La clé est synchronisée avec la liste, et les autres participants peuvent dicter sans rien configurer. Une clé personnelle saisie sur un appareil reste prioritaire.
+   - Décocher retire le partage : la clé est effacée chez les autres. Quelqu'un a pu la copier entre-temps, donc pour une révocation certaine, il faut régénérer la clé dans AI Studio.
+   - **Recommandé** : dans Google Cloud Console (*API et services → Identifiants*), restreindre la clé aux référents HTTP de ton site (`https://<utilisateur>.github.io/*`), pour qu'elle soit inutilisable ailleurs.
 
 ## Architecture
 
@@ -76,6 +79,7 @@ Le modèle se règle dans les paramètres. Par défaut, c'est l'alias `gemini-fl
 ## Limites connues
 
 - **Sécurité** : quiconque connaît le code (8 caractères aléatoires, environ 850 milliards de combinaisons) peut rejoindre la liste. Les échanges WebRTC sont chiffrés (DTLS), mais il n'y a pas d'authentification. C'est suffisant pour une liste de courses, pas pour des données sensibles.
+- **Clé Gemini partagée** : elle est accessible (outils développeur) à toute personne ayant le lien de la liste. Avec une clé gratuite, le risque se limite à l'épuisement du quota. Avec la facturation activée, restreindre la clé par domaine et fixer un plafond de dépenses.
 - **Dépendance au serveur public PeerJS** pour la mise en relation. S'il est indisponible, l'app reste utilisable en local et se synchronise plus tard. Pour plus de fiabilité, on peut héberger son propre `peerjs-server` et passer `{ host, port, path }` à `new Peer()` dans `js/sync.js`.
 - **iOS** : un onglet Safari en arrière-plan perd sa connexion. L'app se reconnecte au retour au premier plan et la fusion rattrape les modifications.
 - Ajouts concurrents du **même produit** par deux personnes au même instant : les deux entrées peuvent coexister (ids différents). Il suffit d'en supprimer une.

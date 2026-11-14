@@ -5,6 +5,15 @@ Toutes les évolutions notables de ce projet sont documentées ici.
 Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/)
 et le projet respecte le [versionnage sémantique](https://semver.org/lang/fr/).
 
+## [0.2.0] - 2026-11-14
+
+### Added
+- Partage optionnel de la clé API Gemini avec les participants d'une liste (case à cocher dans les Paramètres) : les autres peuvent dicter et utiliser « Auto (IA) » sans configurer de clé. La clé personnelle reste prioritaire. Le partage peut être retiré, et la clé est alors effacée chez les autres participants.
+- Une nouvelle liste créée par la personne qui partage sa clé reprend ce partage.
+
+### Security
+- La clé partagée est accessible à toute personne disposant du lien de la liste : partage désactivé par défaut, avertissement affiché, et restriction de la clé par domaine recommandée.
+
 ## [0.1.0] - 2026-11-14
 
 ### Added

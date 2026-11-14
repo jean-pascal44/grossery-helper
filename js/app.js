@@ -19,17 +19,27 @@ let cartOpen = false;
 let renderQueued = false;
 
 const getUser = () => ({ userId: settings.userId, name: settings.name || 'Anonyme' });
+
+/** Config Gemini à utiliser : sa propre clé en priorité, sinon celle partagée dans la liste. */
+function ai() {
+  if (settings.apiKey) return { apiKey: settings.apiKey, model: settings.model, shared: false };
+  const s = store.sharedAi();
+  return s ? { apiKey: s.apiKey, model: s.model || DEFAULT_MODEL, shared: true, sharedBy: s.sharedBy } : null;
+}
+
+const aiErrorMessage = (err, cfg) => (cfg?.shared ? `${err.message} (clé partagée par ${cfg.sharedBy})` : err.message);
 const shareLink = () => `${location.origin}${location.pathname}?room=${settings.room}`;
 
 // =====================================================================
 // Liste courante (room)
 // =====================================================================
 
-function openRoom(code, { copyAisles = null } = {}) {
+function openRoom(code, { copyAisles = null, copyAi = null } = {}) {
   sync?.stop();
   store?.dispose();
   store = new Store(code, getUser);
   if (copyAisles?.length) store.addAisles(copyAisles);
+  if (copyAi) store.setSharedAi(copyAi);
   store.addEventListener('change', onStoreChange);
 
   settings.room = code;
@@ -69,7 +79,7 @@ function scheduleRender() {
 }
 
 function render() {
-  renderAisleSelect($('#qa-aisle'), { withAuto: !!settings.apiKey, remember: true });
+  renderAisleSelect($('#qa-aisle'), { withAuto: !!ai(), remember: true });
   renderList();
   renderAisles();
 }
@@ -287,15 +297,16 @@ async function quickAdd(e) {
     const btn = $('#qa-submit');
     btn.disabled = true;
     btn.classList.add('busy');
+    const cfg = ai();
     try {
-      const items = await extractItems({ apiKey: settings.apiKey, model: settings.model, aisles: store.aisleList(), text });
+      const items = await extractItems({ apiKey: cfg?.apiKey, model: cfg?.model, aisles: store.aisleList(), text });
       input.value = '';
       applyExtracted(items);
     } catch (err) {
       // Repli : on ajoute quand même, sans classement.
       const r = store.addItems(splitNames(text).map((name) => ({ name, aisleId: null })));
       input.value = '';
-      toast(`${esc(err.message)} Ajouté dans « Non classé » (${r.added.length}).`, { kind: 'error', duration: 6000 });
+      toast(`${esc(aiErrorMessage(err, cfg))} Ajouté dans « Non classé » (${r.added.length}).`, { kind: 'error', duration: 6000 });
     } finally {
       btn.disabled = false;
       btn.classList.remove('busy');
@@ -403,6 +414,14 @@ function openSettings(focusSel) {
   $('#set-name').value = settings.name;
   $('#set-apikey').value = settings.apiKey;
   $('#set-model').value = settings.model || DEFAULT_MODEL;
+  const shared = store.sharedAi();
+  const sharedByMe = !!shared && shared.by === settings.userId;
+  $('#set-share-key').checked = sharedByMe;
+  const info = $('#set-shared-info');
+  info.hidden = !shared || sharedByMe;
+  if (shared && !sharedByMe) {
+    info.textContent = `🔑 ${shared.sharedBy || 'Un participant'} partage sa clé Gemini avec cette liste : tu peux dicter sans configurer de clé. Si tu saisis la tienne, elle sera utilisée en priorité.`;
+  }
   renderRooms();
   $('#dlg-settings').showModal();
   if (focusSel) $(focusSel)?.focus();
@@ -427,6 +446,20 @@ function saveSettingsForm(e) {
   settings.apiKey = $('#set-apikey').value.trim();
   settings.model = $('#set-model').value.trim() || DEFAULT_MODEL;
   saveSettings(settings);
+
+  // Partage (ou retrait) de la clé avec les participants de la liste.
+  const shared = store.sharedAi();
+  const sharedByMe = !!shared && shared.by === settings.userId;
+  if ($('#set-share-key').checked) {
+    if (!settings.apiKey) {
+      toast('Saisis une clé pour pouvoir la partager.', { kind: 'error' });
+    } else if (!sharedByMe || shared.apiKey !== settings.apiKey || shared.model !== settings.model || shared.sharedBy !== name) {
+      store.setSharedAi({ apiKey: settings.apiKey, model: settings.model, sharedBy: name });
+    }
+  } else if (sharedByMe) {
+    store.clearSharedAi();
+  }
+
   $('#dlg-settings').close();
   if (nameChanged) sync.restart();
   render();
@@ -463,8 +496,8 @@ function setRecState(state, message = '') {
 }
 
 async function startDictation() {
-  if (!settings.apiKey) {
-    toast('Ajoute ta clé API Gemini pour dicter ta liste.', { kind: 'error' });
+  if (!ai()) {
+    toast('Ajoute une clé API Gemini pour dicter ta liste (ou demande à un participant de partager la sienne).', { kind: 'error' });
     openSettings('#set-apikey');
     return;
   }
@@ -504,13 +537,14 @@ async function finishDictation() {
 async function processAudio() {
   if (!lastAudio) return;
   setRecState('processing');
+  const cfg = ai();
   try {
-    const items = await extractItems({ apiKey: settings.apiKey, model: settings.model, aisles: store.aisleList(), audio: lastAudio });
+    const items = await extractItems({ apiKey: cfg?.apiKey, model: cfg?.model, aisles: store.aisleList(), audio: lastAudio });
     if (!$('#dlg-rec').open) return; // annulé entre-temps
     $('#dlg-rec').close();
     applyExtracted(items);
   } catch (err) {
-    if ($('#dlg-rec').open) setRecState('error', err.message);
+    if ($('#dlg-rec').open) setRecState('error', aiErrorMessage(err, cfg));
   }
 }
 
@@ -617,8 +651,11 @@ function bindEvents() {
   $('#form-settings [data-action="new-list"]').addEventListener('click', () => {
     if (!confirm('Créer une nouvelle liste vide (avec une copie de tes rayons) ? La liste actuelle reste accessible dans « Mes listes ».')) return;
     const aisles = store.aisleList().map(({ name, description }) => ({ name, description }));
+    const shared = store.sharedAi();
+    const copyAi = shared && shared.by === settings.userId
+      ? { apiKey: shared.apiKey, model: shared.model, sharedBy: shared.sharedBy } : null;
     $('#dlg-settings').close();
-    openRoom(roomCode(), { copyAisles: aisles });
+    openRoom(roomCode(), { copyAisles: aisles, copyAi });
     toast('Nouvelle liste créée. Partage-la avec le bouton de partage.', { kind: 'success' });
   });
   $('#form-settings [data-action="forget-list"]').addEventListener('click', () => {

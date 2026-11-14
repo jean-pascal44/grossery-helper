@@ -19,7 +19,7 @@ const TIMEOUT_MS = 13000;
 const CONNECT_TIMEOUT_MS = 10000;
 const SIGNALING_ERRORS = new Set(['network', 'socket-error', 'socket-closed', 'server-error', 'disconnected']);
 
-const isEmpty = (c) => !c || (!c.aisles?.length && !c.items?.length);
+const isEmpty = (c) => !c || !['aisles', 'items', 'meta'].some((k) => c[k]?.length);
 const cleanName = (n) => String(n || '').slice(0, 60) || '…';
 
 export class Sync extends EventTarget {
