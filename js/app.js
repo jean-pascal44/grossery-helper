@@ -34,6 +34,45 @@ function publishProfile() {
   if (settings.name) store.setProfile({ name: settings.name, avatar: settings.avatar });
 }
 
+// ---------- Clé Gemini partagée : réglage global, la clé suit son propriétaire ----------
+// Cocher « Partager ma clé » la publie dans chaque liste que l'on ouvre ou crée. Les autres
+// ne la mémorisent pas : ils ne l'ont que dans les listes où le propriétaire est présent,
+// ce qui permet de la révoquer de façon fiable, liste par liste.
+
+const sharingKey = () => !!settings.shareKey && !!settings.apiKey;
+
+/** Aligne la clé partagée de la liste courante sur le réglage global (sans écriture inutile). */
+function syncSharedKey() {
+  const shared = store.sharedAi();
+  const mine = !!shared && shared.by === settings.userId;
+  if (sharingKey()) {
+    if (shared && !mine) return; // un autre participant partage déjà la sienne : on ne l'écrase pas
+    if (!mine || shared.apiKey !== settings.apiKey || shared.model !== settings.model || shared.sharedBy !== settings.name) {
+      store.setSharedAi({ apiKey: settings.apiKey, model: settings.model, sharedBy: settings.name });
+    }
+  } else if (mine) {
+    store.clearSharedAi();
+  }
+}
+
+/** Retrait du partage : révoque aussi la clé dans les autres listes de l'appareil (diffusé à leur ouverture). */
+function revokeKeyInOtherLists() {
+  for (const code of settings.rooms) {
+    if (code === settings.room || peekList(code).keyBy !== settings.userId) continue;
+    const s = new Store(code, getUser);
+    s.clearSharedAi();
+    s.flush();
+    s.dispose({ discard: true });
+  }
+}
+
+/** Migration ≤ 0.8 : le partage était coché liste par liste ; on le reprend s'il l'était dans une liste. */
+function migrateShareKey() {
+  if (settings.shareKey !== undefined) return;
+  settings.shareKey = settings.rooms.some((code) => peekList(code).keyBy === settings.userId);
+  saveSettings(settings);
+}
+
 /** Config Gemini à utiliser : sa propre clé en priorité, sinon celle partagée dans la liste. */
 function ai() {
   if (settings.apiKey) return { apiKey: settings.apiKey, model: settings.model, shared: false };
@@ -60,18 +99,18 @@ const listLabel = (title, code) => title || `Liste ${formatRoom(code)}`;
 
 /**
  * @param {string} code
- * @param {{isNew?: boolean, copyAisles?: object[]|null, copyAi?: object|null}} opts
+ * @param {{isNew?: boolean, copyAisles?: object[]|null}} opts
  *   isNew : liste créée ici (on lui donne la date du jour comme nom). Jamais pour une liste
  *   rejointe, pour ne pas écraser le nom choisi par les autres participants.
  */
-function openRoom(code, { isNew = false, copyAisles = null, copyAi = null } = {}) {
+function openRoom(code, { isNew = false, copyAisles = null } = {}) {
   sync?.stop();
   store?.dispose();
   store = new Store(code, getUser);
   if (isNew) store.setListTitle(defaultListTitle());
   if (copyAisles?.length) store.addAisles(copyAisles);
-  if (copyAi) store.setSharedAi(copyAi);
   publishProfile();
+  syncSharedKey();
   store.addEventListener('change', onStoreChange);
 
   settings.room = code;
@@ -88,6 +127,8 @@ function openRoom(code, { isNew = false, copyAisles = null, copyAi = null } = {}
 function onStoreChange(e) {
   const { source, events } = e.detail;
   if (source === 'remote' && events.length) notifyRemote(events);
+  // Clé d'un autre retirée : on publie la sienne si on partage.
+  if (source === 'remote' && e.detail.changes.meta.some((m) => m.id === 'gemini')) syncSharedKey();
   scheduleRender();
 }
 
@@ -135,6 +176,13 @@ function notifyRemote(events) {
     };
   });
   if (added.length) pushGroupToast('added', added);
+  // Renommage : seul le dernier compte.
+  const renamed = events.filter((e) => e.type === 'renamed').at(-1);
+  if (renamed) {
+    const who = person(renamed.by);
+    toast(`<span class="group-line">${avatarHtml(who, 'sm')}<span><b>${esc(who.name)}</b> a renommé la liste : « ${esc(renamed.title)} »</span></span>`,
+      { kind: 'group', slot: 'renamed', duration: 4000 });
+  }
 }
 
 // =====================================================================
@@ -552,7 +600,7 @@ function openSettings(focusSel) {
   $('#set-notify-manual').checked = !!settings.notifyAddManual;
   const shared = store.sharedAi();
   const sharedByMe = !!shared && shared.by === settings.userId;
-  $('#set-share-key').checked = sharedByMe;
+  $('#set-share-key').checked = !!settings.shareKey;
   const info = $('#set-shared-info');
   info.hidden = !shared || sharedByMe;
   if (shared && !sharedByMe) {
@@ -592,18 +640,13 @@ function saveSettingsForm(e) {
   saveSettings(settings);
   publishProfile();
 
-  // Partage (ou retrait) de la clé avec les participants de la liste.
-  const shared = store.sharedAi();
-  const sharedByMe = !!shared && shared.by === settings.userId;
-  if ($('#set-share-key').checked) {
-    if (!settings.apiKey) {
-      toast('Saisis une clé pour pouvoir la partager.', { kind: 'error' });
-    } else if (!sharedByMe || shared.apiKey !== settings.apiKey || shared.model !== settings.model || shared.sharedBy !== name) {
-      store.setSharedAi({ apiKey: settings.apiKey, model: settings.model, sharedBy: name });
-    }
-  } else if (sharedByMe) {
-    store.clearSharedAi();
-  }
+  // Partage de la clé : réglage global, appliqué ici tout de suite et aux autres listes à leur ouverture.
+  const wasSharing = sharingKey();
+  settings.shareKey = $('#set-share-key').checked;
+  saveSettings(settings);
+  if (settings.shareKey && !settings.apiKey) toast('Saisis une clé pour pouvoir la partager.', { kind: 'error' });
+  syncSharedKey();
+  if (wasSharing && !sharingKey()) revokeKeyInOtherLists();
 
   $('#dlg-settings').close();
   if (nameChanged) sync.restart();
@@ -827,16 +870,26 @@ function bindEvents() {
   $('#form-settings [data-action="new-list"]').addEventListener('click', () => {
     if (!confirm('Créer une nouvelle liste vide (avec une copie de tes rayons) ? La liste actuelle reste accessible dans « Mes listes ».')) return;
     const aisles = store.aisleList().map(({ name, description }) => ({ name, description }));
-    const shared = store.sharedAi();
-    const copyAi = shared && shared.by === settings.userId
-      ? { apiKey: shared.apiKey, model: shared.model, sharedBy: shared.sharedBy } : null;
     $('#dlg-settings').close();
-    openRoom(roomCode(), { isNew: true, copyAisles: aisles, copyAi });
+    openRoom(roomCode(), { isNew: true, copyAisles: aisles }); // la clé partagée y est publiée par syncSharedKey
     toast('Nouvelle liste créée. Partage-la avec le bouton de partage.', { kind: 'success' });
   });
-  $('#form-settings [data-action="forget-list"]').addEventListener('click', () => {
-    if (!confirm('Retirer cette liste de cet appareil ? Les autres participants la gardent.')) return;
+  $('#form-settings [data-action="forget-list"]').addEventListener('click', async () => {
+    // Clé partagée par moi : on la révoque avant de partir, sinon elle resterait chez les autres.
+    const myKey = store.sharedAi()?.by === settings.userId;
+    const online = sync.linked;
+    let msg = 'Retirer cette liste de cet appareil ? Les autres participants la gardent.';
+    if (myKey && online) msg += '\n\nTa clé Gemini partagée y sera retirée pour tous.';
+    if (myKey && !online) msg += '\n\n⚠️ Hors connexion : ta clé Gemini partagée resterait utilisable par les autres participants de cette liste. Reconnecte-toi avant de la retirer, ou régénère la clé dans AI Studio.';
+    if (!confirm(msg)) return;
     const old = settings.room;
+    if (myKey && online) {
+      store.clearSharedAi(); // diffusé immédiatement aux pairs connectés
+      $('#dlg-settings').close();
+      toast('Retrait de ta clé partagée…');
+      await new Promise((r) => setTimeout(r, 1200)); // laisse partir le message avant de couper
+      if (settings.room !== old) return;
+    }
     sync.stop();
     store.dispose({ discard: true });
     forgetList(old);
@@ -871,6 +924,7 @@ function bindEvents() {
 function boot() {
   hydrateIcons();
   bindEvents();
+  migrateShareKey();
 
   // Lien de partage : ?room=CODE
   const params = new URLSearchParams(location.search);

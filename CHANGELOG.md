@@ -5,6 +5,18 @@ Toutes les évolutions notables de ce projet sont documentées ici.
 Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/)
 et le projet respecte le [versionnage sémantique](https://semver.org/lang/fr/).
 
+## [0.9.0] - 2026-11-14
+
+### Added
+- Notification lors d'un renommage de liste : « Alice a renommé la liste : « Apéro samedi » ».
+
+### Changed
+- « Partager ma clé » devient un réglage global de l'appareil (« Partager ma clé dans toutes mes listes ») : la clé est publiée automatiquement dans chaque liste que l'on ouvre ou crée. Les autres participants ne l'ont que dans les listes où son propriétaire est présent. Si un autre participant partage déjà sa clé dans une liste, elle n'est pas écrasée. Les appareils qui partageaient leur clé dans au moins une liste gardent le partage activé.
+- Décocher le partage révoque la clé dans la liste ouverte tout de suite, et dans les autres listes de l'appareil dès qu'on les ouvre.
+
+### Security
+- « Retirer cette liste de l'appareil » révoque d'abord la clé partagée qu'on y avait publiée, pour qu'elle ne reste pas chez les autres participants. Hors connexion, la confirmation prévient que la clé resterait utilisable.
+
 ## [0.8.0] - 2026-11-14
 
 ### Added

@@ -258,6 +258,9 @@ export class Sync extends EventTarget {
     });
   }
 
+  /** Au moins un pair joignable en ce moment (une modification locale part tout de suite). */
+  get linked() { return !this.stopped && this._hasLinks(); }
+
   _hasLinks() {
     return this.role === 'host' ? this.clients.size > 0 : !!this.hostConn?.open;
   }

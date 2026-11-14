@@ -36,11 +36,13 @@ export function peekList(room) {
   try {
     const data = JSON.parse(localStorage.getItem(LIST_PREFIX + room));
     const meta = (data?.meta || []).find((m) => m.id === 'list' && !m.deleted);
+    const key = (data?.meta || []).find((m) => m.id === 'gemini' && !m.deleted && m.apiKey);
     return {
       count: (data?.items || []).filter((i) => !i.deleted && !i.checked).length,
       title: typeof meta?.title === 'string' ? meta.title : '',
+      keyBy: typeof key?.by === 'string' ? key.by : '', // userId de qui partage sa clé dans cette liste
     };
-  } catch { return { count: 0, title: '' }; }
+  } catch { return { count: 0, title: '', keyBy: '' }; }
 }
 
 // ---------- Validation des enregistrements (données venant potentiellement d'un pair) ----------
@@ -280,6 +282,11 @@ export class Store extends EventTarget {
         if (!silent && coll === 'items' && !r.deleted) {
           if (cur && !cur.checked && r.checked) events.push({ type: 'checked', item: r });
           else if (!r.checked && r.announce && r.announce !== cur?.announce) events.push({ type: 'added', item: r });
+        }
+        // Renommage (pas lors de la première réception du nom : ce n'est pas un changement).
+        if (!silent && coll === 'meta' && r.id === 'list' && !r.deleted && r.title
+          && cur && !cur.deleted && cur.title && cur.title !== r.title) {
+          events.push({ type: 'renamed', title: r.title, by: r.by });
         }
       }
     }
