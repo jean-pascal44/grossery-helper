@@ -5,6 +5,15 @@ Toutes les évolutions notables de ce projet sont documentées ici.
 Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/)
 et le projet respecte le [versionnage sémantique](https://semver.org/lang/fr/).
 
+## [0.10.0] - 2026-11-14
+
+### Added
+- Bouton × sur chaque notification pour la fermer sans attendre.
+- Version de l'application affichée discrètement en bas de « Profil & paramètres ».
+
+### Fixed
+- Les notifications simples (ex. « Liste … ouverte. ») s'affichaient en bandeau vert pâle, texte quasi illisible : leur classe `info` reprenait le style de l'encadré d'information des paramètres. Les classes des notifications sont désormais préfixées (`toast-info`, `toast-success`…).
+
 ## [0.9.0] - 2026-11-14
 
 ### Added

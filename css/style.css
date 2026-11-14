@@ -257,15 +257,20 @@ main { max-width: 640px; margin: 0 auto; padding: 0 16px; }
   background: var(--toast-bg); color: var(--toast-text); font-size: 14px; box-shadow: 0 8px 24px rgb(0 0 0 / 0.2);
   animation: toast-in 0.2s ease-out; pointer-events: none;
 }
-.toast.success::before {
+.toast-success::before {
   content: "✓"; flex: none; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center;
   background: var(--accent); color: #fff; font-weight: 700; font-size: 13px;
 }
-.toast.error { background: var(--danger); color: #fff; }
+.toast-error { background: var(--danger); color: #fff; }
 .toast-msg { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.toast.group .toast-msg { display: flex; flex-direction: column; gap: 8px; }
+.toast-group .toast-msg { display: flex; flex-direction: column; gap: 8px; }
 .group-line { display: flex; align-items: center; gap: 10px; }
 .toast button { pointer-events: auto; flex: none; border: 0; background: transparent; color: inherit; font: inherit; font-weight: 700; text-decoration: underline; cursor: pointer; padding: 4px; }
+.toast .toast-close {
+  width: 32px; height: 32px; margin: -6px -8px -6px -4px; padding: 0; border-radius: 50%;
+  display: grid; place-items: center; text-decoration: none; font-size: 20px; font-weight: 400; line-height: 1; opacity: 0.7;
+}
+.toast .toast-close:hover, .toast .toast-close:focus-visible { opacity: 1; background: rgb(128 128 128 / 0.2); }
 .toast.out { opacity: 0; transform: translateY(-6px); transition: 0.2s; }
 @keyframes toast-in { from { opacity: 0; transform: translateY(-8px); } }
 
@@ -288,6 +293,7 @@ dialog::backdrop { background: rgb(0 0 0 / 0.45); }
 .dlg-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
 .dlg-actions.center { justify-content: center; }
 .dlg-actions .spacer { margin-right: auto; }
+.app-version { align-self: center; width: 100%; margin: -4px 0 0; text-align: center; font-size: 11px; color: var(--muted); opacity: 0.6; }
 .field { display: flex; flex-direction: column; gap: 6px; font-size: 14px; font-weight: 600; }
 .field small { font-weight: 400; color: var(--muted); }
 fieldset { border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px 14px; margin: 0; display: flex; flex-direction: column; gap: 12px; }

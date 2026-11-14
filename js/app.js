@@ -370,7 +370,7 @@ function toast(html, { kind = 'info', action = null, duration = 3500, slot = 'in
   toastSlots.get(slot)?.dismiss(true);
   const life = action ? Math.max(duration, 5000) : duration;
   const el = document.createElement('div');
-  el.className = `toast ${kind}`;
+  el.className = `toast toast-${kind}`; // préfixe : évite les collisions avec d'autres classes (.info…)
   el.innerHTML = '<span class="toast-msg"></span>';
   let timer;
   const handle = {
@@ -396,6 +396,13 @@ function toast(html, { kind = 'info', action = null, duration = 3500, slot = 'in
     b.onclick = () => { action.fn(); handle.dismiss(); };
     el.append(b);
   }
+  const close = document.createElement('button');
+  close.type = 'button';
+  close.className = 'toast-close';
+  close.setAttribute('aria-label', 'Fermer la notification');
+  close.textContent = '×';
+  close.onclick = () => handle.dismiss();
+  el.append(close);
   toastSlots.set(slot, handle);
   $('#toasts').append(el);
   handle.update(html);
@@ -747,6 +754,7 @@ function cancelDictation() {
 // =====================================================================
 
 function bindEvents() {
+  $('#app-version').textContent = `Version ${APP_VERSION}`;
   for (const dlg of document.querySelectorAll('dialog')) if (dlg.id !== 'dlg-onboard' && dlg.id !== 'dlg-rec') setupDialog(dlg);
 
   // Navigation
