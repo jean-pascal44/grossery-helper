@@ -62,9 +62,9 @@ function onStoreChange(e) {
 function notifyRemote(events) {
   const checked = events.filter((e) => e.type === 'checked');
   for (const ev of checked.slice(0, 3)) {
-    toast(`<b>${esc(ev.item.checkedBy || 'Quelqu’un')}</b> a pris : ${esc(ev.item.name)}`, { kind: 'check' });
+    toast(`<b>${esc(ev.item.checkedBy || 'Quelqu’un')}</b> a pris : ${esc(ev.item.name)}`, { kind: 'taken' });
   }
-  if (checked.length > 3) toast(`… et ${checked.length - 3} autres produits pris`, { kind: 'check' });
+  if (checked.length > 3) toast(`… et ${checked.length - 3} autres produits pris`, { kind: 'taken' });
   if (checked.length) navigator.vibrate?.(60);
 }
 
@@ -257,7 +257,7 @@ function checkItem(id) {
     const it = store.items.get(id);
     if (!it || it.checked || it.deleted) return;
     store.setChecked(id, true);
-    toast(`${esc(it.name)} → panier`, { kind: 'check', action: { label: 'Annuler', fn: () => store.setChecked(id, false) } });
+    toast(`${esc(it.name)} → panier`, { kind: 'taken', action: { label: 'Annuler', fn: () => store.setChecked(id, false) } });
   }, 180);
 }
 

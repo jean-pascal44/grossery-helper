@@ -5,6 +5,11 @@ Toutes les évolutions notables de ce projet sont documentées ici.
 Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/)
 et le projet respecte le [versionnage sémantique](https://semver.org/lang/fr/).
 
+## [0.2.1] - 2026-11-14
+
+### Fixed
+- Notification de produit coché réduite à une simple coche, sans le nom du produit ni de la personne : la classe CSS du toast (`check`) entrait en conflit avec celle de la case à cocher des produits.
+
 ## [0.2.0] - 2026-11-14
 
 ### Added
