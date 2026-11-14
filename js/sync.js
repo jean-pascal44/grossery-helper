@@ -13,13 +13,15 @@
 // propage aussi les modifications faites hors-ligne. Ensuite seules les modifications circulent ;
 // l'hôte relaie celles d'un client vers tous les autres.
 
+import { COLLECTIONS } from './store.js';
+
 const PREFIX = 'grossery-helper-v1-';
 const PING_MS = 4000;
 const TIMEOUT_MS = 13000;
 const CONNECT_TIMEOUT_MS = 10000;
 const SIGNALING_ERRORS = new Set(['network', 'socket-error', 'socket-closed', 'server-error', 'disconnected']);
 
-const isEmpty = (c) => !c || !['aisles', 'items', 'meta'].some((k) => c[k]?.length);
+const isEmpty = (c) => !c || !COLLECTIONS.some((k) => c[k]?.length);
 const cleanName = (n) => String(n || '').slice(0, 60) || '…';
 
 export class Sync extends EventTarget {
@@ -38,7 +40,7 @@ export class Sync extends EventTarget {
     this.status = 'offline'; // 'offline' | 'connecting' | 'online'
     this.hostConn = null;
     this.clients = new Map(); // peerId -> { conn, name, userId, lastSeen }
-    this.members = []; // [{ id, name, host }]
+    this.members = []; // [{ id, userId, name, host }]
     this.lastSeen = 0;
 
     this._onStoreChange = (e) => {
@@ -198,8 +200,8 @@ export class Sync extends EventTarget {
   _updatePresence() {
     if (this.role !== 'host') return;
     this.members = [
-      { id: this.selfId, name: cleanName(this.getUser().name), host: true },
-      ...[...this.clients.entries()].map(([id, c]) => ({ id, name: c.name, host: false })),
+      { id: this.selfId, userId: this.getUser().userId, name: cleanName(this.getUser().name), host: true },
+      ...[...this.clients.entries()].map(([id, c]) => ({ id, userId: c.userId, name: c.name, host: false })),
     ];
     for (const c of this.clients.values()) this._send(c.conn, { type: 'presence', members: this.members });
     this._setStatus(this.status);
@@ -270,7 +272,9 @@ export class Sync extends EventTarget {
         break;
       case 'presence':
         if (Array.isArray(msg.members)) {
-          this.members = msg.members.slice(0, 50).map((m) => ({ id: String(m.id || ''), name: cleanName(m.name), host: !!m.host }));
+          this.members = msg.members.slice(0, 50).map((m) => ({
+            id: String(m.id || ''), userId: String(m.userId || '').slice(0, 64), name: cleanName(m.name), host: !!m.host,
+          }));
           this._setStatus(this.status);
         }
         break;

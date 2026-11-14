@@ -21,10 +21,10 @@
       <h1>Courses</h1>
     </div>
     <button id="status-pill" class="pill" data-status="offline" type="button" title="Partage et participants">
-      <span class="dot"></span><span class="pill-text">Hors ligne</span>
+      <span class="dot"></span><span class="pill-avatars"></span><span class="pill-text">Hors ligne</span>
     </button>
     <button id="btn-share" class="icon-btn" type="button" aria-label="Partager la liste"><i data-icon="share"></i></button>
-    <button id="btn-settings" class="icon-btn" type="button" aria-label="Paramètres"><i data-icon="settings"></i></button>
+    <button id="btn-settings" class="icon-btn" type="button" aria-label="Profil et paramètres"><i data-icon="settings"></i></button>
   </header>
 
   <main>
@@ -63,7 +63,7 @@
   <dialog id="dlg-onboard" class="sheet">
     <form class="dlg-body" id="form-onboard">
       <h2>Bienvenue 👋</h2>
-      <p class="muted" id="onboard-text">Choisis un prénom : il sera affiché aux autres quand tu ajoutes ou prends un produit.</p>
+      <p class="muted" id="onboard-text">Choisis un prénom : il sera affiché aux autres quand tu ajoutes ou prends un produit. Tu pourras ajouter un avatar ensuite, via le bouton en haut à droite.</p>
       <label class="field">Ton prénom
         <input id="onboard-name" type="text" maxlength="40" required autocomplete="given-name" enterkeyhint="go">
       </label>
@@ -135,7 +135,17 @@
   <!-- Paramètres -->
   <dialog id="dlg-settings" class="sheet">
     <form class="dlg-body" id="form-settings">
-      <h2>Paramètres</h2>
+      <h2>Profil &amp; paramètres</h2>
+      <div class="avatar-editor">
+        <div id="set-avatar-preview" class="avatar-preview"></div>
+        <div class="avatar-tools">
+          <div id="set-avatar-emojis" class="emoji-grid" role="group" aria-label="Choisir un emoji"></div>
+          <div class="row-actions">
+            <label class="btn"><input id="set-avatar-file" type="file" accept="image/*" hidden>📷 Photo</label>
+            <button class="btn" type="button" data-action="avatar-initials">Initiales</button>
+          </div>
+        </div>
+      </div>
       <label class="field">Ton prénom <input id="set-name" type="text" maxlength="40" required></label>
       <fieldset>
         <legend>IA vocale Gemini</legend>

@@ -20,7 +20,7 @@ export const DEFAULT_MODEL = 'gemini-flash-lite-latest';
 export function loadSettings() {
   let saved = {};
   try { saved = JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {}; } catch { /* stockage indisponible */ }
-  return { name: '', userId: uid(), apiKey: '', model: DEFAULT_MODEL, room: null, rooms: [], ...saved };
+  return { name: '', userId: uid(), avatar: null, apiKey: '', model: DEFAULT_MODEL, room: null, rooms: [], ...saved };
 }
 
 export function saveSettings(settings) {
@@ -68,6 +68,8 @@ function cleanItem(r) {
     checkedBy: checked ? str(r.checkedBy, 60) : null,
     checkedAt: checked ? Number(r.checkedAt) || base.updatedAt : null,
     addedBy: str(r.addedBy, 60),
+    addedById: str(r.addedById, 64),
+    checkedById: checked ? str(r.checkedById, 64) : null,
     createdAt: Number(r.createdAt) || base.updatedAt,
   };
 }
@@ -79,9 +81,23 @@ function cleanMeta(r) {
   return { ...base, apiKey: base.deleted ? '' : str(r.apiKey, 200), model: str(r.model, 80), sharedBy: str(r.sharedBy, 60) };
 }
 
-const CLEAN = { aisles: cleanAisle, items: cleanItem, meta: cleanMeta };
-const COLLECTIONS = ['aisles', 'items', 'meta'];
-const emptyChanges = () => ({ aisles: [], items: [], meta: [] });
+// Profils des participants (id = userId) : prénom + avatar, pour l'affichage même hors connexion.
+const PHOTO_RE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+=*$/;
+function cleanAvatar(a) {
+  if (!a || typeof a !== 'object' || typeof a.value !== 'string') return null;
+  if (a.type === 'emoji' && a.value.length <= 16) return { type: 'emoji', value: a.value };
+  if (a.type === 'photo' && a.value.length <= 40000 && PHOTO_RE.test(a.value)) return { type: 'photo', value: a.value };
+  return null;
+}
+function cleanProfile(r) {
+  const base = baseFields(r);
+  if (!base) return null;
+  return { ...base, name: str(r.name, 60), avatar: cleanAvatar(r.avatar) };
+}
+
+const CLEAN = { aisles: cleanAisle, items: cleanItem, meta: cleanMeta, profiles: cleanProfile };
+export const COLLECTIONS = ['aisles', 'items', 'meta', 'profiles'];
+const emptyChanges = () => ({ aisles: [], items: [], meta: [], profiles: [] });
 const hasChanges = (c) => COLLECTIONS.some((k) => c[k].length);
 
 /** `a` l'emporte-t-il sur `b` ? Égalité départagée par l'id d'auteur pour un ordre total. */
@@ -101,6 +117,7 @@ export class Store extends EventTarget {
     this.aisles = new Map();
     this.items = new Map();
     this.meta = new Map();
+    this.profiles = new Map();
     this.clock = 0;
     this._saveTimer = null;
     this._load();
@@ -147,7 +164,7 @@ export class Store extends EventTarget {
 
   /** État complet, pierres tombales comprises (pour la synchro). */
   snapshot() {
-    return { aisles: [...this.aisles.values()], items: [...this.items.values()], meta: [...this.meta.values()] };
+    return Object.fromEntries(COLLECTIONS.map((c) => [c, [...this[c].values()]]));
   }
 
   _emit(source, changes, events = []) {
@@ -215,6 +232,31 @@ export class Store extends EventTarget {
     return [...this.items.values()].filter((i) => !i.deleted);
   }
 
+  // ---------- Profils (prénom + avatar) ----------
+
+  profile(userId) {
+    const p = userId ? this.profiles.get(userId) : null;
+    return p && !p.deleted ? p : null;
+  }
+
+  /** Repli pour les anciens produits sans id d'auteur : profil le plus récent portant ce prénom. */
+  profileByName(name) {
+    let best = null;
+    for (const p of this.profiles.values()) {
+      if (!p.deleted && name && p.name === name && (!best || p.updatedAt > best.updatedAt)) best = p;
+    }
+    return best;
+  }
+
+  /** Publie son propre profil dans la liste (sans écriture si rien n'a changé). */
+  setProfile({ name, avatar }) {
+    const { userId } = this.getUser();
+    const av = avatar || null;
+    const cur = this.profiles.get(userId);
+    if (cur && !cur.deleted && cur.name === name && JSON.stringify(cur.avatar) === JSON.stringify(av)) return;
+    this._commit({ profiles: [{ id: userId, name, avatar: av, deleted: false }] });
+  }
+
   // ---------- Clé Gemini partagée ----------
 
   /** @returns {{apiKey: string, model: string, sharedBy: string, by: string} | null} */
@@ -277,7 +319,7 @@ export class Store extends EventTarget {
    * @param {{name: string, aisleId: string|null}[]} entries
    */
   addItems(entries) {
-    const { name: me } = this.getUser();
+    const { name: me, userId } = this.getUser();
     const known = new Map();
     for (const it of this.itemList()) {
       const k = norm(it.name);
@@ -293,12 +335,12 @@ export class Store extends EventTarget {
       if (cur && !cur.checked) { result.skipped.push(cur); continue; }
       let rec;
       if (cur) {
-        rec = { ...cur, checked: false, checkedBy: null, checkedAt: null, aisleId: e.aisleId ?? cur.aisleId };
+        rec = { ...cur, checked: false, checkedBy: null, checkedById: null, checkedAt: null, aisleId: e.aisleId ?? cur.aisleId };
         result.restored.push(rec);
       } else {
         rec = {
           id: uid(), name, aisleId: e.aisleId || null, checked: false, checkedBy: null, checkedAt: null,
-          addedBy: me, createdAt: Date.now(), deleted: false,
+          addedBy: me, addedById: userId, createdAt: Date.now(), deleted: false,
         };
         result.added.push(rec);
       }
@@ -317,9 +359,11 @@ export class Store extends EventTarget {
   setChecked(id, checked) {
     const cur = this.items.get(id);
     if (!cur || cur.deleted || cur.checked === checked) return;
-    const { name } = this.getUser();
+    const { name, userId } = this.getUser();
     this._commit({
-      items: [{ ...cur, checked, checkedBy: checked ? name : null, checkedAt: checked ? Date.now() : null }],
+      items: [{
+        ...cur, checked, checkedBy: checked ? name : null, checkedById: checked ? userId : null, checkedAt: checked ? Date.now() : null,
+      }],
     });
   }
 

@@ -5,6 +5,17 @@ Toutes les évolutions notables de ce projet sont documentées ici.
 Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/)
 et le projet respecte le [versionnage sémantique](https://semver.org/lang/fr/).
 
+## [0.3.0] - 2026-11-14
+
+### Added
+- Avatar personnel : photo (recadrée et compressée à 96 px), emoji ou initiales colorées par défaut, choisi dans « Profil & paramètres ».
+- Avatars affichés dans l'en-tête (son propre avatar et les participants connectés dans la pastille d'état), sur les produits (« ajouté par »), dans le panier, dans la liste des participants et dans la notification « X a pris : Y ».
+- Profils (prénom + avatar) synchronisés avec la liste : visibles même quand la personne n'est pas connectée.
+
+### Changed
+- Le bouton Paramètres affiche son avatar.
+- La pastille d'état affiche les avatars et le nombre de connectés au lieu de « N connectés ».
+
 ## [0.2.1] - 2026-11-14
 
 ### Fixed

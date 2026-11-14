@@ -28,7 +28,8 @@ python3 -m http.server 8000   # puis http://localhost:8000
 4. **Dictée** : bouton micro, dicter « des bananes, du lait, 3 avocats et du liquide vaisselle », puis *Terminé*. Les produits déjà présents ne sont pas dupliqués, ceux du panier sont remis dans la liste. Un bouton *Annuler* permet de retirer l'ajout.
 5. **Cocher** : toucher un produit le passe dans « Dans le panier » (repliable en bas, toucher pour le remettre dans la liste).
 6. **Partager** : icône de partage ou pastille d'état. Lien, QR code ou code à 8 caractères. Le panneau liste les personnes connectées.
-7. **Clé Gemini** : *Paramètres*, clé gratuite sur <https://aistudio.google.com/apikey>. Elle est stockée dans le `localStorage` de l'appareil. Sans clé, tout fonctionne sauf la dictée et « Auto (IA) ».
+7. **Avatar** : bouton en haut à droite (*Profil & paramètres*). Photo, emoji ou initiales. Il apparaît chez les autres sur les produits que tu ajoutes ou coches et dans les notifications.
+8. **Clé Gemini** : *Paramètres*, clé gratuite sur <https://aistudio.google.com/apikey>. Elle est stockée dans le `localStorage` de l'appareil. Sans clé, tout fonctionne sauf la dictée et « Auto (IA) ».
    - **Une seule clé pour tous** : cocher « Partager ma clé avec les participants de cette liste ». La clé est synchronisée avec la liste, et les autres participants peuvent dicter sans rien configurer. Une clé personnelle saisie sur un appareil reste prioritaire.
    - Décocher retire le partage : la clé est effacée chez les autres. Quelqu'un a pu la copier entre-temps, donc pour une révocation certaine, il faut régénérer la clé dans AI Studio.
    - **Recommandé** : dans Google Cloud Console (*API et services → Identifiants*), restreindre la clé aux référents HTTP de ton site (`https://<utilisateur>.github.io/*`), pour qu'elle soit inutilisable ailleurs.
@@ -43,6 +44,7 @@ js/store.js           État, persistance localStorage, fusion LWW
 js/sync.js            WebRTC (PeerJS), élection d'hôte, relais, heartbeat
 js/gemini.js          Appel REST Gemini, sortie JSON structurée
 js/audio.js           Enregistrement micro, conversion WAV 16 kHz mono
+js/avatar.js          Avatars : rendu, recadrage photo
 js/presets.js         Rayons types
 js/icons.js           Icônes SVG inline
 sw.js, manifest       PWA : installable, utilisable hors-ligne

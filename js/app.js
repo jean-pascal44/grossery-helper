@@ -7,6 +7,7 @@ import { Recorder, toGeminiAudio } from './audio.js';
 import { PRESET_AISLES } from './presets.js';
 import { esc, norm, roomCode, parseRoom, formatRoom, capitalize, plural } from './util.js';
 import { icon, hydrateIcons } from './icons.js';
+import { avatarHtml, photoToAvatar, AVATAR_EMOJIS } from './avatar.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const MAX_REC_SECONDS = 90;
@@ -19,6 +20,18 @@ let cartOpen = false;
 let renderQueued = false;
 
 const getUser = () => ({ userId: settings.userId, name: settings.name || 'Anonyme' });
+const me = () => ({ id: settings.userId, name: settings.name || '?', avatar: settings.avatar });
+
+/** Profil (prénom + avatar) d'une personne, par id avec repli sur le prénom. */
+function person(userId, name) {
+  if (userId && userId === settings.userId) return me();
+  return store.profile(userId) || store.profileByName(name) || { id: userId || name, name: name || '?', avatar: null };
+}
+
+/** Publie son profil dans la liste courante pour que les autres voient son avatar. */
+function publishProfile() {
+  if (settings.name) store.setProfile({ name: settings.name, avatar: settings.avatar });
+}
 
 /** Config Gemini à utiliser : sa propre clé en priorité, sinon celle partagée dans la liste. */
 function ai() {
@@ -40,6 +53,7 @@ function openRoom(code, { copyAisles = null, copyAi = null } = {}) {
   store = new Store(code, getUser);
   if (copyAisles?.length) store.addAisles(copyAisles);
   if (copyAi) store.setSharedAi(copyAi);
+  publishProfile();
   store.addEventListener('change', onStoreChange);
 
   settings.room = code;
@@ -62,7 +76,8 @@ function onStoreChange(e) {
 function notifyRemote(events) {
   const checked = events.filter((e) => e.type === 'checked');
   for (const ev of checked.slice(0, 3)) {
-    toast(`<b>${esc(ev.item.checkedBy || 'Quelqu’un')}</b> a pris : ${esc(ev.item.name)}`, { kind: 'taken' });
+    const who = person(ev.item.checkedById, ev.item.checkedBy);
+    toast(`<b>${esc(who.name)}</b> a pris : ${esc(ev.item.name)}`, { kind: 'taken', avatar: avatarHtml(who, 'md') });
   }
   if (checked.length > 3) toast(`… et ${checked.length - 3} autres produits pris`, { kind: 'taken' });
   if (checked.length) navigator.vibrate?.(60);
@@ -82,6 +97,8 @@ function render() {
   renderAisleSelect($('#qa-aisle'), { withAuto: !!ai(), remember: true });
   renderList();
   renderAisles();
+  renderStatus();
+  $('#btn-settings').innerHTML = settings.name ? avatarHtml(me(), 'sm') : icon('settings');
 }
 
 function renderAisleSelect(select, { withAuto = false, remember = false, value } = {}) {
@@ -96,13 +113,17 @@ function renderAisleSelect(select, { withAuto = false, remember = false, value }
 }
 
 function itemRow(it, { cart = false } = {}) {
-  const me = settings.name;
   let meta = '';
   if (cart) {
     const time = it.checkedAt ? new Date(it.checkedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : '';
-    meta = `${esc(it.checkedBy || '')}${time ? ` · ${time}` : ''}`;
-  } else if (it.addedBy && it.addedBy !== me) {
-    meta = `ajouté par ${esc(it.addedBy)}`;
+    const who = person(it.checkedById, it.checkedBy);
+    meta = `${avatarHtml(who, 'xs')}<span>${esc(who.name)}${time ? ` · ${time}` : ''}</span>`;
+  } else {
+    const mine = it.addedById ? it.addedById === settings.userId : it.addedBy === settings.name;
+    if (it.addedBy && !mine) {
+      const who = person(it.addedById, it.addedBy);
+      meta = `${avatarHtml(who, 'xs')}<span>ajouté par ${esc(who.name)}</span>`;
+    }
   }
   return `
     <li class="item" data-id="${esc(it.id)}">
@@ -197,9 +218,13 @@ function renderStatus() {
   const pill = $('#status-pill');
   const status = settings.name ? sync?.status || 'offline' : 'offline';
   const n = sync?.members.length || 0;
+  const others = status === 'online' && n > 1;
   pill.dataset.status = status;
+  pill.title = others ? `${n} connectés : ${sync.members.map((m) => m.name).join(', ')}` : 'Partage et participants';
+  $('.pill-avatars', pill).innerHTML = others
+    ? sync.members.slice(0, 3).map((m) => avatarHtml(person(m.userId, m.name), 'xs')).join('') : '';
   $('.pill-text', pill).textContent =
-    status === 'online' ? (n > 1 ? `${n} connectés` : 'En ligne')
+    status === 'online' ? (others ? String(n) : 'En ligne')
       : status === 'connecting' ? 'Connexion…' : 'Hors ligne';
   if ($('#dlg-share').open) renderMembers();
 }
@@ -213,7 +238,7 @@ function renderMembers() {
   }
   const selfId = sync.selfId;
   el.innerHTML = sync.members.map((m) => `
-    <li><span class="avatar">${esc(m.name.charAt(0).toUpperCase())}</span>
+    <li>${avatarHtml(person(m.userId, m.name), 'sm')}
       <span>${esc(m.name)}${m.id === selfId ? ' <span class="muted">(toi)</span>' : ''}</span>
       ${m.host ? '<span class="tag">relais</span>' : ''}</li>`).join('')
     + (sync.members.length <= 1 ? '<li class="muted small">Personne d\'autre pour l\'instant : partage le lien !</li>' : '');
@@ -223,11 +248,11 @@ function renderMembers() {
 // Toasts
 // =====================================================================
 
-function toast(html, { kind = 'info', action = null, duration = 3500 } = {}) {
+function toast(html, { kind = 'info', action = null, duration = 3500, avatar = '' } = {}) {
   const box = $('#toasts');
   const el = document.createElement('div');
-  el.className = `toast ${kind}`;
-  el.innerHTML = `<span class="toast-msg">${html}</span>`;
+  el.className = `toast ${kind}${avatar ? ' with-avatar' : ''}`;
+  el.innerHTML = `${avatar}<span class="toast-msg">${html}</span>`;
   const dismiss = () => {
     if (!el.isConnected) return;
     el.classList.add('out');
@@ -410,8 +435,20 @@ function joinFromInput(e) {
 }
 
 // --- Paramètres ---
+let draftAvatar = null;
+
+function renderAvatarEditor() {
+  $('#set-avatar-preview').innerHTML = avatarHtml({ id: settings.userId, name: $('#set-name').value.trim() || '?', avatar: draftAvatar }, 'lg');
+  $('#set-avatar-emojis').innerHTML = AVATAR_EMOJIS.map((e) => {
+    const sel = draftAvatar?.type === 'emoji' && draftAvatar.value === e;
+    return `<button type="button" data-emoji="${e}" class="${sel ? 'selected' : ''}" aria-pressed="${sel}">${e}</button>`;
+  }).join('');
+}
+
 function openSettings(focusSel) {
   $('#set-name').value = settings.name;
+  draftAvatar = settings.avatar;
+  renderAvatarEditor();
   $('#set-apikey').value = settings.apiKey;
   $('#set-model').value = settings.model || DEFAULT_MODEL;
   const shared = store.sharedAi();
@@ -445,7 +482,9 @@ function saveSettingsForm(e) {
   settings.name = name;
   settings.apiKey = $('#set-apikey').value.trim();
   settings.model = $('#set-model').value.trim() || DEFAULT_MODEL;
+  settings.avatar = draftAvatar;
   saveSettings(settings);
+  publishProfile();
 
   // Partage (ou retrait) de la clé avec les participants de la liste.
   const shared = store.sharedAi();
@@ -641,6 +680,25 @@ function bindEvents() {
 
   // Paramètres
   $('#form-settings').addEventListener('submit', saveSettingsForm);
+  $('#set-name').addEventListener('input', renderAvatarEditor);
+  $('#set-avatar-emojis').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-emoji]');
+    if (!b) return;
+    draftAvatar = { type: 'emoji', value: b.dataset.emoji };
+    renderAvatarEditor();
+  });
+  $('#form-settings [data-action="avatar-initials"]').addEventListener('click', () => { draftAvatar = null; renderAvatarEditor(); });
+  $('#set-avatar-file').addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      draftAvatar = await photoToAvatar(file);
+      renderAvatarEditor();
+    } catch (err) {
+      toast(esc(err.message), { kind: 'error' });
+    }
+  });
   $('#set-rooms').addEventListener('click', (e) => {
     const b = e.target.closest('[data-room]');
     if (!b || b.dataset.room === settings.room) return;
@@ -677,6 +735,7 @@ function bindEvents() {
     if (!name) return;
     settings.name = name;
     saveSettings(settings);
+    publishProfile();
     $('#dlg-onboard').close();
     sync.start(settings.room);
     render();
