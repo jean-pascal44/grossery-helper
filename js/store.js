@@ -31,23 +31,43 @@ export function forgetList(room) {
   try { localStorage.removeItem(LIST_PREFIX + room); } catch { /* ignore */ }
 }
 
-/** Nombre de produits restants d'une liste stockée (pour l'écran "Mes listes"). */
+/** Nom et nombre de produits restants d'une liste stockée (pour l'écran "Mes listes"). */
 export function peekList(room) {
   try {
     const data = JSON.parse(localStorage.getItem(LIST_PREFIX + room));
-    return (data?.items || []).filter((i) => !i.deleted && !i.checked).length;
-  } catch { return 0; }
+    const meta = (data?.meta || []).find((m) => m.id === 'list' && !m.deleted);
+    return {
+      count: (data?.items || []).filter((i) => !i.deleted && !i.checked).length,
+      title: typeof meta?.title === 'string' ? meta.title : '',
+    };
+  } catch { return { count: 0, title: '' }; }
 }
 
 // ---------- Validation des enregistrements (données venant potentiellement d'un pair) ----------
 
 const str = (v, max) => (typeof v === 'string' ? v : v == null ? '' : String(v)).slice(0, max);
 
+/**
+ * Champs inconnus de cette version (ajoutés par une version plus récente) : conservés s'ils sont
+ * de type simple et de taille bornée, pour qu'un relais plus ancien ne les efface pas en les relayant.
+ */
+function extras(r) {
+  const out = {};
+  let n = 0;
+  for (const [k, v] of Object.entries(r)) {
+    if (n >= 16 || k.length > 32 || !/^[A-Za-z_]\w*$/.test(k)) continue;
+    if ((typeof v === 'string' && v.length <= 500) || typeof v === 'boolean' || v === null
+      || (typeof v === 'number' && Number.isFinite(v))) { out[k] = v; n++; }
+  }
+  return out;
+}
+
 function baseFields(r) {
   if (!r || typeof r !== 'object' || typeof r.id !== 'string' || !r.id || r.id.length > 64) return null;
   const updatedAt = Number(r.updatedAt);
   if (!Number.isFinite(updatedAt) || updatedAt <= 0 || updatedAt > Date.now() + MAX_FUTURE) return null;
-  return { id: r.id, deleted: !!r.deleted, updatedAt, by: str(r.by, 64) };
+  // Les champs connus, posés ensuite par chaque fonction cleanX, priment sur les extras.
+  return { ...extras(r), id: r.id, deleted: !!r.deleted, updatedAt, by: str(r.by, 64) };
 }
 
 function cleanAisle(r) {
@@ -76,10 +96,12 @@ function cleanItem(r) {
   };
 }
 
-// Réglages partagés de la liste. Seul l'enregistrement 'gemini' existe : clé API partagée volontairement.
+// Réglages partagés de la liste : 'list' (nom de la liste) et 'gemini' (clé API partagée volontairement).
 function cleanMeta(r) {
   const base = baseFields(r);
-  if (!base || base.id !== 'gemini') return null;
+  if (!base) return null;
+  if (base.id === 'list') return { ...base, title: str(r.title, 80) };
+  if (base.id !== 'gemini') return base; // réglage d'une version plus récente : conservé et relayé tel quel
   return { ...base, apiKey: base.deleted ? '' : str(r.apiKey, 200), model: str(r.model, 80), sharedBy: str(r.sharedBy, 60) };
 }
 
@@ -303,6 +325,19 @@ export class Store extends EventTarget {
     const cur = this.profiles.get(userId);
     if (cur && !cur.deleted && cur.name === name && JSON.stringify(cur.avatar) === JSON.stringify(av)) return;
     this._commit({ profiles: [{ id: userId, name, avatar: av, deleted: false }] });
+  }
+
+  // ---------- Nom de la liste ----------
+
+  /** Nom de la liste ('' si jamais nommée : listes créées avant cette fonctionnalité). */
+  listTitle() {
+    const r = this.meta.get('list');
+    return r && !r.deleted ? r.title : '';
+  }
+
+  setListTitle(title) {
+    const t = String(title || '').trim().slice(0, 80);
+    if (t && t !== this.listTitle()) this._commit({ meta: [{ id: 'list', title: t, deleted: false }] });
   }
 
   // ---------- Clé Gemini partagée ----------

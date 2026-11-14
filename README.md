@@ -43,14 +43,15 @@ Ouvrir `http://localhost:8000/?signal=http://localhost:9000` : le choix est mém
 ## Utilisation
 
 1. **Prénom** demandé à la première ouverture : il apparaît dans les notifications des autres.
-2. **Rayons** : bouton « Rayons types » pour démarrer avec 12 rayons, puis ajuster nom, description et ordre (flèches) selon ton magasin.
-3. **Ajout manuel** : champ en haut de la liste. Plusieurs produits d'un coup en les séparant par des virgules. Le choix **✨ Auto (IA)** fait classer le texte par Gemini.
-4. **Dictée** : bouton micro, dicter « des bananes, du lait, 3 avocats et du liquide vaisselle », puis *Terminé*. Les produits déjà présents ne sont pas dupliqués, ceux du panier sont remis dans la liste. Un bouton *Annuler* permet de retirer l'ajout.
-5. **Prévenir les autres de ses ajouts** (optionnel) : dans les paramètres, une case pour la dictée et une pour l'ajout manuel. Les autres reçoivent alors « Bob a dicté : … » ou « Bob a ajouté : … ».
-6. **Cocher** : toucher un produit le passe dans « Dans le panier » (repliable en bas, toucher pour le remettre dans la liste).
-7. **Partager** : icône de partage ou pastille d'état. Lien, QR code ou code à 8 caractères. Le panneau liste les personnes connectées.
-8. **Avatar** : bouton en haut à droite (*Profil & paramètres*). Photo, emoji ou initiales. Il apparaît chez les autres sur les produits que tu ajoutes ou coches et dans les notifications.
-9. **Clé Gemini** : *Paramètres*, clé gratuite sur <https://aistudio.google.com/apikey>. Elle est stockée dans le `localStorage` de l'appareil. Sans clé, tout fonctionne sauf la dictée et « Auto (IA) ».
+2. **Nom de la liste** : « Liste du <date> » par défaut. Toucher le nom affiché en haut de l'écran « Courses » pour le changer. Il est partagé avec tous les participants.
+3. **Rayons** : bouton « Rayons types » pour démarrer avec 12 rayons, puis ajuster nom, description et ordre (flèches) selon ton magasin.
+4. **Ajout manuel** : champ en haut de la liste. Plusieurs produits d'un coup en les séparant par des virgules. Le choix **✨ Auto (IA)** fait classer le texte par Gemini.
+5. **Dictée** : bouton micro, dicter « des bananes, du lait, 3 avocats et du liquide vaisselle », puis *Terminé*. Les produits déjà présents ne sont pas dupliqués, ceux du panier sont remis dans la liste. Un bouton *Annuler* permet de retirer l'ajout.
+6. **Prévenir les autres de ses ajouts** (optionnel) : dans les paramètres, une case pour la dictée et une pour l'ajout manuel. Les autres reçoivent alors « Bob a dicté : … » ou « Bob a ajouté : … ».
+7. **Cocher** : toucher un produit le passe dans « Dans le panier » (repliable en bas, toucher pour le remettre dans la liste).
+8. **Partager** : icône de partage ou pastille d'état. Lien, QR code ou code à 8 caractères. Le panneau liste les personnes connectées.
+9. **Avatar** : bouton en haut à droite (*Profil & paramètres*). Photo, emoji ou initiales. Il apparaît chez les autres sur les produits que tu ajoutes ou coches et dans les notifications.
+10. **Clé Gemini** : *Paramètres*, clé gratuite sur <https://aistudio.google.com/apikey>. Elle est stockée dans le `localStorage` de l'appareil. Sans clé, tout fonctionne sauf la dictée et « Auto (IA) ».
    - **Une seule clé pour tous** : cocher « Partager ma clé avec les participants de cette liste ». La clé est synchronisée avec la liste, et les autres participants peuvent dicter sans rien configurer. Une clé personnelle saisie sur un appareil reste prioritaire.
    - Décocher retire le partage : la clé est effacée chez les autres. Quelqu'un a pu la copier entre-temps, donc pour une révocation certaine, il faut régénérer la clé dans AI Studio.
    - **Recommandé** : dans Google Cloud Console (*API et services → Identifiants*), restreindre la clé aux référents HTTP de ton site (`https://<utilisateur>.github.io/*`), pour qu'elle soit inutilisable ailleurs.
@@ -104,5 +105,6 @@ Le modèle se règle dans les paramètres. Par défaut, c'est l'alias `gemini-fl
 - **Sécurité** : quiconque connaît le code (8 caractères aléatoires, environ 850 milliards de combinaisons) peut rejoindre la liste. Les échanges WebRTC sont chiffrés (DTLS), mais il n'y a pas d'authentification. C'est suffisant pour une liste de courses, pas pour des données sensibles.
 - **Clé Gemini partagée** : elle est accessible (outils développeur) à toute personne ayant le lien de la liste. Avec une clé gratuite, le risque se limite à l'épuisement du quota. Avec la facturation activée, restreindre la clé par domaine et fixer un plafond de dépenses.
 - **Dépendance au serveur public PeerJS** pour la mise en relation. Il limite le nombre de connexions par adresse IP : trop de tentatives rapprochées (plusieurs onglets bloqués, tests automatisés) déclenchent un blocage temporaire (HTTP 429), et les appareils restent alors sur « Problème de connexion » quelques minutes. S'il est indisponible, l'app reste utilisable en local et se synchronise plus tard. Pour plus de fiabilité, on peut héberger son propre `peerjs-server` et ajouter `host`, `port` et `path` dans `PEER_OPTIONS` (`js/sync.js`).
+- **Versions mélangées** : un appareil qui n'a pas rechargé la page après une mise à jour peut ne pas relayer les nouveautés (ex. le nom de liste avec un relais antérieur à 0.8.0). Le panneau de partage signale ces participants, et recharger la page suffit. À partir de 0.8.0, les champs inconnus sont conservés et relayés.
 - **iOS** : un onglet Safari en arrière-plan perd sa connexion. L'app se reconnecte au retour au premier plan et la fusion rattrape les modifications.
 - Ajouts concurrents du **même produit** par deux personnes au même instant : les deux entrées peuvent coexister (ids différents). Il suffit d'en supprimer une.

@@ -154,7 +154,14 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 main { max-width: 640px; margin: 0 auto; padding: 0 16px; }
 .hint { font-size: 14px; color: var(--muted); margin: 12px 2px 16px; }
 
-.quick-add { display: flex; gap: 8px; margin: 4px 0 18px; }
+.list-title {
+  display: inline-flex; align-items: center; gap: 6px; max-width: 100%; margin: 0 2px 8px; padding: 2px 0;
+  border: 0; background: none; color: var(--muted); font: inherit; font-size: 13px; cursor: pointer;
+}
+.list-title span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.list-title svg { width: 13px; height: 13px; opacity: 0.7; }
+.list-title:hover { color: var(--text); }
+.quick-add { display: flex; gap: 8px; margin: 0 0 18px; }
 .quick-add input { flex: 1 1 auto; min-width: 0; }
 .quick-add select { flex: 0 1 auto; width: auto; max-width: 36%; min-width: 0; }
 
@@ -304,6 +311,7 @@ legend { padding: 0 6px; font-size: 13px; font-weight: 700; color: var(--muted);
 .members li { display: flex; align-items: center; gap: 10px; }
 .members li.diag { display: block; padding: 10px 12px; border-radius: 12px; font-size: 14px; background: color-mix(in srgb, var(--warn) 15%, transparent); }
 .tag { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--surface-2); color: var(--muted); }
+.tag.warn { background: color-mix(in srgb, var(--warn) 20%, transparent); color: var(--text); }
 .join { display: flex; flex-direction: column; }
 
 /* Mes listes */
@@ -312,7 +320,10 @@ legend { padding: 0 6px; font-size: 13px; font-weight: 700; color: var(--muted);
   width: 100%; display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; cursor: pointer;
   border: 1px solid var(--border); background: var(--surface); color: var(--text); font: inherit; text-align: left;
 }
-.room .code { font-size: 15px; }
+.room .code { font-size: 12px; }
+.room-main { display: flex; flex-direction: column; min-width: 0; }
+.room-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.share-title { font-size: 16px; }
 .room .tag { margin-left: auto; }
 .room.current { border-color: var(--accent); cursor: default; }
 

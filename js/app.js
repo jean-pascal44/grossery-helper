@@ -7,6 +7,7 @@ import { Recorder, toGeminiAudio } from './audio.js';
 import { PRESET_AISLES } from './presets.js';
 import { esc, norm, roomCode, parseRoom, formatRoom, capitalize, plural } from './util.js';
 import { icon, hydrateIcons } from './icons.js';
+import { APP_VERSION } from './version.js';
 import { avatarHtml, photoToAvatar, AVATAR_EMOJIS } from './avatar.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -50,10 +51,24 @@ const shareLink = () => {
 // Liste courante (room)
 // =====================================================================
 
-function openRoom(code, { copyAisles = null, copyAi = null } = {}) {
+/** Nom par défaut d'une nouvelle liste : la date du jour. */
+const defaultListTitle = () =>
+  `Liste du ${new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}`;
+
+/** Nom affiché d'une liste (repli sur son code pour les listes jamais nommées). */
+const listLabel = (title, code) => title || `Liste ${formatRoom(code)}`;
+
+/**
+ * @param {string} code
+ * @param {{isNew?: boolean, copyAisles?: object[]|null, copyAi?: object|null}} opts
+ *   isNew : liste créée ici (on lui donne la date du jour comme nom). Jamais pour une liste
+ *   rejointe, pour ne pas écraser le nom choisi par les autres participants.
+ */
+function openRoom(code, { isNew = false, copyAisles = null, copyAi = null } = {}) {
   sync?.stop();
   store?.dispose();
   store = new Store(code, getUser);
+  if (isNew) store.setListTitle(defaultListTitle());
   if (copyAisles?.length) store.addAisles(copyAisles);
   if (copyAi) store.setSharedAi(copyAi);
   publishProfile();
@@ -133,6 +148,9 @@ function scheduleRender() {
 }
 
 function render() {
+  const title = listLabel(store.listTitle(), settings.room);
+  $('#list-title-text').textContent = title;
+  document.title = `${title} · Courses`;
   renderAisleSelect($('#qa-aisle'), { withAuto: !!ai(), remember: true });
   renderList();
   renderAisles();
@@ -280,11 +298,15 @@ function renderMembers() {
     return;
   }
   const selfId = sync.selfId;
+  // Un participant sur une autre version (onglet pas rechargé) peut ne pas relayer les nouveautés.
+  const outdated = sync.members.filter((m) => m.id !== selfId && m.version !== APP_VERSION);
   el.innerHTML = sync.members.map((m) => `
     <li>${avatarHtml(person(m.userId, m.name), 'sm')}
       <span>${esc(m.name)}${m.id === selfId ? ' <span class="muted">(toi)</span>' : ''}</span>
-      ${m.host ? '<span class="tag">relais</span>' : ''}</li>`).join('')
-    + (sync.members.length <= 1 ? '<li class="muted small">Personne d\'autre pour l\'instant : partage le lien !</li>' : '');
+      ${m.host ? '<span class="tag">relais</span>' : ''}
+      ${m.id !== selfId && m.version !== APP_VERSION ? `<span class="tag warn">${m.version ? `v${esc(m.version)}` : 'ancienne version'}</span>` : ''}</li>`).join('')
+    + (sync.members.length <= 1 ? '<li class="muted small">Personne d\'autre pour l\'instant : partage le lien !</li>' : '')
+    + (outdated.length ? `<li class="diag">⚠️ Versions différentes (toi : v${APP_VERSION}). Demande à ${outdated.map((m) => esc(m.name)).join(', ')} de recharger la page, sinon certaines informations (nom de la liste…) peuvent ne pas circuler.</li>` : '');
 }
 
 // =====================================================================
@@ -467,6 +489,7 @@ function openAisleDialog(id = null) {
 function openShare() {
   const code = settings.room;
   $('#share-code').textContent = formatRoom(code);
+  $('#share-title').textContent = listLabel(store.listTitle(), code);
   $('#join-code').value = '';
   const qrEl = $('#share-qr');
   if (typeof window.qrcode === 'function') {
@@ -542,11 +565,16 @@ function openSettings(focusSel) {
 
 function renderRooms() {
   $('#set-rooms').innerHTML = settings.rooms.map((code) => {
-    const n = code === settings.room ? store.itemList().filter((i) => !i.checked).length : peekList(code);
-    return `<li><button type="button" class="room ${code === settings.room ? 'current' : ''}" data-room="${esc(code)}">
-      <span class="code">${esc(formatRoom(code))}</span>
-      <span class="muted small">${plural(n, 'produit', 'produits')}</span>
-      ${code === settings.room ? '<span class="tag">actuelle</span>' : ''}</button></li>`;
+    const current = code === settings.room;
+    const { count: n, title } = current
+      ? { count: store.itemList().filter((i) => !i.checked).length, title: store.listTitle() }
+      : peekList(code);
+    return `<li><button type="button" class="room ${current ? 'current' : ''}" data-room="${esc(code)}">
+      <span class="room-main">
+        <span class="room-title">${esc(listLabel(title, code))}</span>
+        <span class="muted small"><span class="code">${esc(formatRoom(code))}</span> · ${plural(n, 'produit', 'produits')}</span>
+      </span>
+      ${current ? '<span class="tag">actuelle</span>' : ''}</button></li>`;
   }).join('');
 }
 
@@ -749,6 +777,18 @@ function bindEvents() {
     }
   });
 
+  // Nom de la liste
+  $('#list-title-btn').addEventListener('click', () => {
+    $('#list-title-input').value = store.listTitle() || defaultListTitle();
+    $('#dlg-list').showModal();
+    $('#list-title-input').select();
+  });
+  $('#form-list').addEventListener('submit', (e) => {
+    e.preventDefault();
+    store.setListTitle($('#list-title-input').value);
+    $('#dlg-list').close();
+  });
+
   // Partage
   $('#btn-copy-link').addEventListener('click', copyLink);
   $('#btn-native-share').addEventListener('click', () => {
@@ -791,7 +831,7 @@ function bindEvents() {
     const copyAi = shared && shared.by === settings.userId
       ? { apiKey: shared.apiKey, model: shared.model, sharedBy: shared.sharedBy } : null;
     $('#dlg-settings').close();
-    openRoom(roomCode(), { copyAisles: aisles, copyAi });
+    openRoom(roomCode(), { isNew: true, copyAisles: aisles, copyAi });
     toast('Nouvelle liste créée. Partage-la avec le bouton de partage.', { kind: 'success' });
   });
   $('#form-settings [data-action="forget-list"]').addEventListener('click', () => {
@@ -803,7 +843,8 @@ function bindEvents() {
     settings.rooms = settings.rooms.filter((r) => r !== old);
     store = null;
     $('#dlg-settings').close();
-    openRoom(settings.rooms[0] || roomCode());
+    if (settings.rooms[0]) openRoom(settings.rooms[0]);
+    else openRoom(roomCode(), { isNew: true });
   });
 
   // Accueil
@@ -838,7 +879,8 @@ function boot() {
   if (params.has('room') || params.has('signal')) history.replaceState(null, '', location.pathname);
   const joining = !!urlRoom && urlRoom !== settings.room;
 
-  openRoom(urlRoom || settings.room || roomCode());
+  if (urlRoom || settings.room) openRoom(urlRoom || settings.room);
+  else openRoom(roomCode(), { isNew: true });
   if (!settings.name) openOnboarding(joining);
   else if (joining) toast(`Liste ${formatRoom(urlRoom)} rejointe.`, { kind: 'success' });
 

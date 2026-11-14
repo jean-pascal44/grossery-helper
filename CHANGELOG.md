@@ -5,6 +5,19 @@ Toutes les évolutions notables de ce projet sont documentées ici.
 Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/)
 et le projet respecte le [versionnage sémantique](https://semver.org/lang/fr/).
 
+## [0.8.0] - 2026-11-14
+
+### Added
+- Nom de liste, synchronisé entre participants : « Liste du 14 novembre 2026 » par défaut (date de création), modifiable en touchant le nom affiché discrètement en haut de l'écran « Courses ». Aussi visible dans l'onglet du navigateur et le panneau de partage.
+- « Mes listes » affiche le nom de chaque liste avec son code et son nombre de produits.
+- Chaque appareil annonce sa version (`js/version.js`) : le panneau de partage signale un participant resté sur une autre version (« ancienne version ») et lui demande de recharger la page.
+
+### Fixed
+- Rétrocompatibilité : les champs et réglages inconnus d'une version (ajoutés par une version plus récente) sont désormais conservés et relayés, s'ils sont de type simple et de taille bornée, au lieu d'être effacés. Un relais resté sur une version antérieure à 0.8.0 efface encore le nom de la liste : il faut recharger la page sur tous les appareils.
+
+### Changed
+- Le nom par défaut n'est écrit qu'à la création d'une liste, jamais en la rejoignant, pour ne pas écraser le nom choisi par les autres. Les listes créées avant cette version s'affichent « Liste <code> » jusqu'à ce qu'on les renomme.
+
 ## [0.7.1] - 2026-11-14
 
 ### Fixed

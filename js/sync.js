@@ -23,6 +23,7 @@
 // - la cause du dernier échec est conservée (`lastError`) et affichée dans l'interface.
 
 import { COLLECTIONS } from './store.js';
+import { APP_VERSION } from './version.js';
 
 const PREFIX = 'grossery-helper-v1-';
 const PING_MS = 4000;
@@ -309,6 +310,7 @@ export class Sync extends EventTarget {
       case 'hello': {
         client.name = cleanName(msg.user?.name);
         client.userId = String(msg.user?.id || '').slice(0, 64);
+        client.version = String(msg.version || '').slice(0, 20); // vide = version antérieure à 0.8.0
         if (msg.digest) {
           // Synchro par différence : on n'envoie que ce qui manque au client, on demande ce qui nous manque.
           const { send, want } = this.store.diff(msg.digest);
@@ -341,8 +343,8 @@ export class Sync extends EventTarget {
   _updatePresence() {
     if (this.role !== 'host') return;
     this.members = [
-      { id: this.selfId, userId: this.getUser().userId, name: cleanName(this.getUser().name), host: true },
-      ...[...this.clients.entries()].map(([id, c]) => ({ id, userId: c.userId, name: c.name, host: false })),
+      { id: this.selfId, userId: this.getUser().userId, name: cleanName(this.getUser().name), host: true, version: APP_VERSION },
+      ...[...this.clients.entries()].map(([id, c]) => ({ id, userId: c.userId, name: c.name, host: false, version: c.version || '' })),
     ];
     for (const c of this.clients.values()) this._send(c.conn, { type: 'presence', members: this.members });
     this._setStatus(this.status);
@@ -423,7 +425,7 @@ export class Sync extends EventTarget {
         log('connecté au relais');
         this._online();
         const u = this.getUser();
-        this._send(conn, { type: 'hello', user: { id: u.userId, name: u.name }, digest: this.store.digest() });
+        this._send(conn, { type: 'hello', version: APP_VERSION, user: { id: u.userId, name: u.name }, digest: this.store.digest() });
       });
       conn.on('data', (msg) => {
         if (this.hostConn !== conn) return;
@@ -484,6 +486,7 @@ export class Sync extends EventTarget {
         if (Array.isArray(msg.members)) {
           this.members = msg.members.slice(0, 50).map((m) => ({
             id: String(m.id || ''), userId: String(m.userId || '').slice(0, 64), name: cleanName(m.name), host: !!m.host,
+            version: String(m.version || '').slice(0, 20), // vide = relais antérieur à 0.8.0
           }));
           this._setStatus(this.status);
         }

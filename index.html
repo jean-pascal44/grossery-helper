@@ -30,6 +30,9 @@
   <main>
     <!-- Onglet Liste -->
     <section id="view-list" class="view">
+      <button id="list-title-btn" class="list-title" type="button" title="Renommer la liste">
+        <span id="list-title-text"></span><i data-icon="pencil"></i>
+      </button>
       <form id="quick-add" class="quick-add" autocomplete="off">
         <input id="qa-name" type="text" placeholder="Ajouter un produit…" enterkeyhint="done" aria-label="Produit(s) à ajouter">
         <select id="qa-aisle" aria-label="Rayon"></select>
@@ -102,6 +105,21 @@
     </form>
   </dialog>
 
+  <!-- Nom de la liste -->
+  <dialog id="dlg-list" class="sheet">
+    <form class="dlg-body" id="form-list">
+      <h2>Nom de la liste</h2>
+      <label class="field">Nom
+        <input id="list-title-input" type="text" maxlength="80" required>
+        <small>Visible par tous les participants.</small>
+      </label>
+      <div class="dlg-actions">
+        <button class="btn" type="button" data-action="close">Annuler</button>
+        <button class="btn primary" type="submit">Enregistrer</button>
+      </div>
+    </form>
+  </dialog>
+
   <!-- Partage -->
   <dialog id="dlg-share" class="sheet">
     <div class="dlg-body">
@@ -109,6 +127,7 @@
       <div class="share-box">
         <div id="share-qr" class="qr"></div>
         <div class="share-info">
+          <strong id="share-title" class="share-title"></strong>
           <span class="muted small">Code de la liste</span>
           <strong id="share-code" class="code"></strong>
           <div class="share-buttons">
